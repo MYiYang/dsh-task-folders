@@ -1,0 +1,19 @@
+# dsh-task-folders bundle patch.
+#
+# 挂载 Host 半侧：一条带部署可信校验的 POST 路由族 `/task-folders/api/*`，
+# 负责「建任务 = 代建目录并登记成 DSH 工作区」，以及把任务工作区里的会话按天归档成
+# DSH 默认格式的会话日志。包的 `dsh.client` 声明会让 Web carrier 自己把 client.js
+# 送到浏览器（侧栏「任务」一行 + 整页面板），所以这里不需要再补 UI 行。
+#
+# 可选配置，全部可以在 profile 自己的 patch 层覆盖：
+#
+#   - id: task-folders
+#     name: 'dsh-task-folders'
+#     config:
+#       tasksRoot: '~/.dsh/tasks'   # 任务目录的根（默认 $DSH_HOME/tasks）；支持 ~ 前缀
+#       flushDelayMs: 300           # 会话事件攒批落盘的时间窗
+#       flushBatchSize: 64          # 攒到多少行立刻落盘
+#       recoverFromLog: true        # 重启后从日志恢复写入进度
+- insert:
+    - id: task-folders
+      name: 'dsh-task-folders'

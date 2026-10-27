@@ -1,0 +1,58 @@
+{
+  "name": "dsh-task-folders",
+  "version": "0.7.0",
+  "description": "「任务」= 任务区自己的默认工作区（有且只有一份）：把所有落在 $DSH_HOME/tasks 里的会话收进侧栏任务组，按创建那天（YYYY-MM-DD）分隔展示，聊天记录按天归档成 DSH 默认格式（session.v4.jsonl.zstd）。任务底下是一个真实的隐藏工作区——空白会话因此有工作区芯片，输入框可用；多余的老任务登记会被摘掉，每个工作区行尾也能一键新建会话。v0.5 把内置侧栏的另外三样补回来：会话行「…」菜单（归档 / 取消归档、复制 Session ID）、项目归档（整个工作区收进底部「已归档项目」，可一键恢复）、搜索（Ctrl/⌘+K，本地标题匹配 + Host 全文搜索）。v0.6 补上 DSH 自己也没有的那一样：删除会话——把会话日志、按天副本与投影缓存收进回收站（可配置成永久删除），并把 id 从归档集合与工作区成员表里摘干净。v0.7 修侧栏几何：区域铺满高度（折叠时不再只剩三行、浮层不再被裁），一组会话超过 10 条折进「展开其余 N 个会话」（跑着 / 等回话的照样露脸）。",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "lib/",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "license": "MIT",
+  "author": "MYiYang <1791500400@qq.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MYiYang/dsh-task-folders.git"
+  },
+  "homepage": "https://github.com/MYiYang/dsh-task-folders#readme",
+  "bugs": {
+    "url": "https://github.com/MYiYang/dsh-task-folders/issues"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin",
+    "tasks",
+    "session-archive",
+    "session-search",
+    "session-delete",
+    "project-archive",
+    "ungrouped-sessions"
+  ],
+  "engines": {
+    "node": ">=22.15"
+  },
+  "scripts": {
+    "test": "node --test test/paths.test.js test/sessions.test.js test/scan.test.js test/archive.test.js test/session-files.test.js test/state.test.js test/project-archive.test.js test/route.test.js test/client.test.js"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-locale"
+      ]
+    }
+  }
+}
