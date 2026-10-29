@@ -1,9 +1,10 @@
 # dsh-task-folders bundle patch.
 #
 # 挂载 Host 半侧：一条带部署可信校验的 POST 路由族 `/task-folders/api/*`，
-# 负责「建任务 = 代建目录并登记成 DSH 工作区」，以及把任务工作区里的会话按天归档成
-# DSH 默认格式的会话日志。包的 `dsh.client` 声明会让 Web carrier 自己把 client.js
-# 送到浏览器（侧栏「任务」一行 + 整页面板），所以这里不需要再补 UI 行。
+# 负责「建任务 = 代建目录并登记成 DSH 工作区」，把任务工作区里的会话按天归档成
+# DSH 默认格式的会话日志，以及在设置 → 技能页里列出 / 安装 / 删除用户技能。
+# 包的 `dsh.client` 声明会让 Web carrier 自己把 client.js 送到浏览器
+# （侧栏「任务」一行 + 设置里的「技能」页），所以这里不需要再补 UI 行。
 #
 # 可选配置，全部可以在 profile 自己的 patch 层覆盖：
 #
@@ -14,6 +15,8 @@
 #       flushDelayMs: 300           # 会话事件攒批落盘的时间窗
 #       flushBatchSize: 64          # 攒到多少行立刻落盘
 #       recoverFromLog: true        # 重启后从日志恢复写入进度
+#       skillsRoot: '~/.dsh/skills' # 设置页安装 / 删除的用户技能根（默认 $DSH_HOME/skills）
+#       skillTrash: true            # 删除技能时移进 task-folders/skill-trash（false = 永久删除）
 - insert:
     - id: task-folders
       name: 'dsh-task-folders'

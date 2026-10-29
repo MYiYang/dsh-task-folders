@@ -47,12 +47,23 @@ import { createProjectArchive } from './lib/project-archive.js'
 import { scanSessionsRoot } from './lib/scan.js'
 import { describeRemoval, pruneTrash, removeSessionFiles, trashRoot } from './lib/session-files.js'
 import { createSessionIndex } from './lib/sessions.js'
+import {
+  SkillInstallError,
+  deleteSkill as deleteSkillFiles,
+  installSkill as installSkillFiles,
+  requireSkillName,
+  skillView,
+} from './lib/skills.js'
 import { buildState } from './lib/state.js'
 
 /** 路由族前缀；方法名就是前缀之后的那一段。 */
 const API_PREFIX = '/task-folders/api'
 /** 请求体上限：面板只发短 JSON（标题、id），1MB 已经非常宽松。 */
 const MAX_BODY_BYTES = 1024 * 1024
+/** 技能安装的请求体上限：上传内容 8MB，base64 后约 11MB，再留一点 JSON 包装。 */
+const MAX_SKILL_BODY_BYTES = 12 * 1024 * 1024
+/** 技能详情正文上限：SKILL.md 是人写的说明书，256KB 已经远超正常体量。 */
+const MAX_SKILL_CONTENT = 256 * 1024
 /** 所有 JSON 应答的头。 */
 const JSON_HEADERS = {
   'content-type': 'application/json; charset=utf-8',
@@ -100,14 +111,15 @@ function writeFailure(res, status, code, message) {
 /**
  * 读取并校验请求体。空体视为 `{}`。
  * @param {import('node:http').IncomingMessage} req - 请求。
+ * @param {number} [limit] - 字节上限。
  * @returns {Promise<Record<string, unknown>>} 解析后的对象。
  */
-async function readJsonBody(req) {
+async function readJsonBody(req, limit = MAX_BODY_BYTES) {
   const chunks = []
   let size = 0
   for await (const chunk of req) {
     size += chunk.length
-    if (size > MAX_BODY_BYTES) throw new TaskFoldersError('bad-request', '请求体过大', 413)
+    if (size > limit) throw new TaskFoldersError('bad-request', '请求体过大', 413)
     chunks.push(chunk)
   }
   if (size === 0) return {}
@@ -167,6 +179,18 @@ export function apply(ctx, config = {}) {
       ? path.resolve(tasksRootValue(config.tasksRoot, home))
       : path.join(home, 'tasks')
 
+  /**
+   * 用户技能根：设置页只能在这里装 / 删技能。
+   *
+   * 默认 `<DSH_HOME>/skills`，与 `dsh-skill-filesystem` 的 `user-dsh` 根（rank 400）一致。
+   * 官方 `bundled`、项目 `.dsh/skills`、共享 `~/.agents/skills` 都在别的根下——它们会被
+   * 列出来，但删除按钮不会出现（Host 侧也会 403，界面只是不诱惑人点）。
+   */
+  const skillsRoot =
+    typeof config.skillsRoot === 'string' && config.skillsRoot.trim() !== ''
+      ? path.resolve(tasksRootValue(config.skillsRoot, home))
+      : path.join(home, 'skills')
+
   // 先把根目录建出来再 realpath：工作区注册表存的是 realpath，两边必须同一套拼写，
   // 否则「有没有工作区」的判定在软链/大小写差异的机器上会认错。
   let resolvedRoot = tasksRoot
@@ -176,6 +200,17 @@ export function apply(ctx, config = {}) {
   } catch {
     resolvedRoot = tasksRoot
   }
+
+  /**
+   * 「打开文件夹」的那一下副作用，可注入。
+   *
+   * 宿主默认真去叫资源管理器（`explorer.exe` / `open` / `xdg-open`）；测试里换成 no-op，
+   * 这样断言返回值不必在开发者机器上弹窗。注入点存在的另一个理由：`spawn` 的失败是异步
+   * `'error'` 事件，同步那条路几乎不抛，所以「open 成功没」本来就无从断言——能 Assert 的
+   * 只有「交给它的是哪个路径」。
+   * @type {(target: string) => boolean}
+   */
+  const reveal = typeof config.reveal === 'function' ? config.reveal : revealDirectory
 
   /**
    * 工作区注册表：反复 `ctx.get`（服务可能晚于本插件就绪），拿不到就退化成只读。
@@ -724,6 +759,116 @@ export function apply(ctx, config = {}) {
   }
 
   /**
+   * 技能注册表（`dsh-skill` 的 `ctx.skills`）。没挂载时给出人话，而不是 500 堆栈。
+   * @returns {object} 技能注册表。
+   */
+  const skillsRegistry = () => {
+    const service = ctx.get('skills')
+    if (service === undefined || typeof service.snapshot !== 'function') {
+      throw new TaskFoldersError('skills-unavailable', '当前 DSH 没有技能注册表（dsh-skill 未加载），无法读取技能', 503)
+    }
+    return service
+  }
+
+  /**
+   * 技能查询用的 cwd：项目技能根要靠它定位。客户端给不出就退回 Host 的默认目录。
+   * @param {unknown} value - 请求里的 cwd。
+   * @returns {string|undefined} 绝对路径。
+   */
+  const skillsCwd = (value) => {
+    if (typeof value === 'string' && value.trim() !== '' && value.trim().length <= 1024) {
+      return path.resolve(value.trim())
+    }
+    const fallback = ctx.get('workingDirectory')?.defaultDirectory
+    return typeof fallback === 'string' && fallback !== '' ? path.resolve(fallback) : undefined
+  }
+
+  /**
+   * 打开一份「哪个 scope 的技能目录」视图。
+   *
+   * 这是本功能最容易踩空的一处：`ctx.skills` 在 Host 全局层只是一个注册表，而本机 profile
+   * 把 `dsh-skill-filesystem` / `tool-skill` 挂在 **Agent 预设**里（`include:skill` 全局只有
+   * 注册表本体）。只读全局层的话，页面上会一个文件技能都看不到。所以按 DSH 自己
+   * `SessionSkillCatalog` 的做法分两条路：
+   *
+   *   - 当前会话还活着 → `agentPresets.serviceFor(agent, 'skills')` 拿它那份**已经带
+   *     预设层**的注册表，`scope` 直接传 agent；
+   *   - 没有活会话（刚启动、设置页也能开）→ `agentPresets.acquireScope()` 借一份默认预设的
+   *     scope（用 AsyncDisposable 归还），再在全局注册表上带 `{ scope }` 读。
+   *
+   * @param {Record<string, unknown>} payload - `{ cwd?, sessionId? }`。
+   * @returns {Promise<{registry: object, scope: unknown, lease: object|undefined, cwd: string|undefined, scopeKind: string}>} 视图。
+   */
+  const openSkillView = async (payload) => {
+    const cwd = skillsCwd(payload?.cwd)
+    const sessionId = typeof payload?.sessionId === 'string' ? payload.sessionId : ''
+    const live = sessionId === '' ? undefined : ctx.get('agents')?.get?.(sessionId)
+    const presets = ctx.get('agentPresets')
+    if (live !== undefined) {
+      // 先看这个会话自己的预设层：这份注册表本身就合并了全局层，还多了预设里挂的提供方。
+      const scoped = presets?.serviceFor?.(live, 'skills')
+      if (scoped !== undefined) {
+        return { registry: scoped, scope: live, lease: undefined, cwd, scopeKind: 'session' }
+      }
+    }
+    const globalRegistry = skillsRegistry()
+    let lease
+    try {
+      lease = await presets?.acquireScope?.()
+    } catch {
+      lease = undefined
+    }
+    return {
+      registry: globalRegistry,
+      scope: lease?.key,
+      lease,
+      cwd,
+      scopeKind: lease === undefined ? 'global' : 'preset',
+    }
+  }
+
+  /**
+   * 归还预设 scope 租约（活会话那条路没有租约）。
+   * @param {{lease?: object}} view - `openSkillView()` 的结果。
+   * @returns {Promise<void>} 完成。
+   */
+  const closeSkillView = async (view) => {
+    const lease = view?.lease
+    if (lease === undefined || typeof lease[Symbol.asyncDispose] !== 'function') return
+    try {
+      await lease[Symbol.asyncDispose]()
+    } catch {
+      /* 归还失败不影响已经读到的结果 */
+    }
+  }
+
+  /**
+   * 读取技能目录（注册表合并后的结果）并投影成设置页视图。
+   * @param {Record<string, unknown>} payload - `{ cwd?, sessionId? }`。
+   * @returns {Promise<object>} 列表 + 用户技能根。
+   */
+  const listSkills = async (payload) => {
+    const view = await openSkillView(payload)
+    try {
+      const snapshot = await view.registry.snapshot({
+        ...(view.cwd === undefined ? {} : { cwd: view.cwd }),
+        ...(view.scope === undefined ? {} : { scope: view.scope }),
+      })
+      return {
+        skills: (Array.isArray(snapshot?.skills) ? snapshot.skills : []).map((summary) => skillView(summary, skillsRoot)),
+        complete: snapshot?.complete !== false,
+        userRoot: skillsRoot,
+        cwd: view.cwd ?? '',
+        scopeKind: view.scopeKind,
+        debug: config.debug === true,
+        skillsAvailable: fs.existsSync(skillsRoot),
+      }
+    } finally {
+      await closeSkillView(view)
+    }
+  }
+
+  /**
    * 面板的一次读写操作。
    * @type {Record<string, (payload: Record<string, unknown>) => unknown | Promise<unknown>>}
    */
@@ -899,8 +1044,73 @@ export function apply(ctx, config = {}) {
         throw new TaskFoldersError('forbidden', '目标不在任务根目录内', 403)
       }
       if (!fs.existsSync(target)) throw new TaskFoldersError('not-found', `路径不存在：${target}`, 404)
-      if (!revealDirectory(target)) throw new TaskFoldersError('open-failed', '无法打开文件夹', 500)
+      if (!reveal(target)) throw new TaskFoldersError('open-failed', '无法打开文件夹', 500)
       return { path: target, opened: true }
+    },
+
+    /**
+     * 技能清单：设置页的「技能」页首屏。
+     *
+     * 数据来自 `ctx.skills.snapshot()`——注册表已经把官方 `bundled`、用户目录、项目目录与
+     * 运行时注册的技能合并、去重、按名字排好；这里只做来源分类与删除权限（`userManaged`）
+     * 的投影。`complete: false` 表示某个提供方这次没读全，界面会提示但不藏已有结果。
+     */
+    async skills(payload) {
+      return listSkills(payload)
+    },
+
+    /** 技能详情：按名字加载完整 SKILL.md 正文，供设置页展开阅读。 */
+    async skillDetail(payload) {
+      const name = requireSkillName(payload.name)
+      const view = await openSkillView(payload)
+      try {
+        const definition = await view.registry.get(name, {
+          ...(view.cwd === undefined ? {} : { cwd: view.cwd }),
+          ...(view.scope === undefined ? {} : { scope: view.scope }),
+        })
+        if (definition === undefined) throw new TaskFoldersError('not-found', `没有这个技能：${name}`, 404)
+        const rawContent = typeof definition.content === 'string' ? definition.content : ''
+        const truncated = rawContent.length > MAX_SKILL_CONTENT
+        return {
+          ...skillView(definition, skillsRoot),
+          content: truncated ? rawContent.slice(0, MAX_SKILL_CONTENT) : rawContent,
+          truncated,
+        }
+      } finally {
+        await closeSkillView(view)
+      }
+    },
+
+    /**
+     * 安装技能：两种入口共用一条路——
+     *   - `files`: 浏览器上传的目录 bundle / 单个 `.md`（base64 或文本）；
+     *   - `draft`: 设置页里「新建技能」表单（name / description / whenToUse / body）。
+     * 同名已存在时返回 409 `skill-exists`，客户端弹二次确认后带 `overwrite: true` 重试。
+     */
+    async installSkill(payload) {
+      const files = Array.isArray(payload.files) ? payload.files : undefined
+      const draft = payload.draft !== null && typeof payload.draft === 'object' ? payload.draft : undefined
+      if (files === undefined && draft === undefined) {
+        throw new TaskFoldersError('bad-request', '缺少 files 或 draft', 400)
+      }
+      return installSkillFiles({
+        home,
+        root: skillsRoot,
+        files,
+        draft,
+        overwrite: payload.overwrite === true,
+      })
+    },
+
+    /** 删除一个用户技能：只允许 `<skillsRoot>` 里的路径，默认移进回收站。 */
+    async deleteSkill(payload) {
+      return deleteSkillFiles({
+        home,
+        root: skillsRoot,
+        name: payload.name,
+        path: payload.path,
+        trash: config.skillTrash !== false,
+      })
     },
 
     /** 自检：面板与调试都用得到。 */
@@ -930,6 +1140,8 @@ export function apply(ctx, config = {}) {
         projectArchiveFile: projects.file,
         trashRoot: trashRoot(home),
         trashMode: config.trash !== false,
+        skillsRoot,
+        skillTrashRoot: path.join(home, 'task-folders', 'skill-trash'),
         workspaces: value.workspaces.map((workspace) => ({ id: workspace.id, title: workspace.title, path: workspace.path })),
         taskAreas: registryList()
           .filter((entity) => typeof entity?.path === 'string' && tasks.isTaskPath(entity.path))
@@ -1073,11 +1285,15 @@ export function apply(ctx, config = {}) {
             return
           }
           try {
-            const payload = await readJsonBody(req)
+            const payload = await readJsonBody(req, method === 'installSkill' ? MAX_SKILL_BODY_BYTES : MAX_BODY_BYTES)
             const value = await operations[method](payload)
             writeJson(res, 200, { ok: true, value })
           } catch (error) {
             if (error instanceof TaskFoldersError) {
+              writeFailure(res, error.status, error.code, error.message)
+              return
+            }
+            if (error instanceof SkillInstallError) {
               writeFailure(res, error.status, error.code, error.message)
               return
             }

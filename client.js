@@ -291,6 +291,77 @@ window.__ModuleLoader__.load({
       // —— v0.7：一屏铺不完就折起来（与内置侧栏同一套说法与几何）——
       expandSessions: '展开其余 {n} 个会话',
       collapseSessions: '收起',
+      // —— v0.8：设置 → 技能（列出官方 / 我的 / 项目 / 运行时，并管理用户自己的那份）——
+      skillsNav: '技能',
+      skillsTitle: '技能',
+      skillsIntro:
+        '这里能看到 DSH 当前加载的全部技能：官方随包提供的、你自己安装的、项目里的，以及运行时注册的。上传或新建的技能会写进下面的安装位置，保存后自动出现在下一次会话目录里。',
+      skillsSearch: '搜索技能名称或描述',
+      skillsAll: '全部',
+      skillsOfficial: '官方内置',
+      skillsUser: '我的技能',
+      skillsProject: '项目',
+      skillsRuntime: '运行时',
+      skillsOther: '其他',
+      skillsEmpty: '还没有技能。点「上传技能」把一个技能目录或 SKILL.md 放进来。',
+      skillsFilterEmpty: '这个分类下没有技能。',
+      skillsLoading: '正在读取技能…',
+      skillsError: '技能读取失败',
+      skillsRefresh: '刷新',
+      skillsUpload: '上传技能',
+      skillsNew: '新建技能',
+      skillsUserRoot: '安装位置：{path}',
+      skillsSourceUserDsh: 'DSH 用户目录',
+      skillsSourceUserAgents: '共享 Agent 目录',
+      skillsSourceCustom: '自定义目录',
+      skillsSourceProjectDsh: '项目 .dsh',
+      skillsSourceProjectAgents: '项目 .agents',
+      skillsSourceBundled: '官方内置',
+      skillsSourceRuntime: '运行时',
+      skillsModelOnly: '仅模型',
+      skillsUserOnly: '仅用户',
+      skillsModelUser: '模型 + 用户',
+      skillsDetail: '技能详情',
+      skillsDetailLoading: '正在读取 SKILL.md…',
+      skillsDetailError: '技能正文读取失败',
+      skillsTruncated: '正文过长，只显示前 256 KB。',
+      skillsDelete: '删除技能',
+      skillsDeleteConfirm: '删除「{name}」？它会移进 task-folders/skill-trash，可以从磁盘找回。',
+      skillsDeleted: '技能已删除（在 skill-trash 里可找回）',
+      skillsDeleteFailed: '删除失败',
+      skillsUploadTitle: '上传技能',
+      skillsNewTitle: '新建技能',
+      skillsUploadHint: '拖一个技能目录 / SKILL.md 到这里，或从磁盘选择',
+      skillsChooseFolder: '选择技能目录',
+      skillsChooseFiles: '选择文件',
+      skillsDropHere: '松开即可读取',
+      skillsFiles: '已选文件',
+      skillsNoFiles: '还没有选择文件',
+      skillsDetected: '识别到技能：{name}',
+      skillsNotDetected: '没有找到 SKILL.md；上传单个 .md 时会按技能安装',
+      skillsName: '技能名（kebab-case）',
+      skillsNameHint: '小写字母、数字与连字符，例如 report-builder',
+      skillsDescription: '一句话描述',
+      skillsDescriptionHint: '模型靠它判断什么时候该用这个技能',
+      skillsWhenToUse: '什么时候用（可选）',
+      skillsBody: '技能正文（frontmatter 之后的部分）',
+      skillsInstall: '安装',
+      skillsInstalling: '安装中…',
+      skillsInstalled: '技能「{name}」已安装',
+      skillsInstallFailed: '安装失败',
+      skillsExists: '同名技能已存在，覆盖安装？',
+      skillsOverwrite: '覆盖安装',
+      skillsClose: '关闭',
+      skillsCancel: '取消',
+      skillsTooLarge: '文件太大（单次最多 {size}）',
+      skillsIncomplete: '有技能提供方没有读全，列表可能缺少条目。',
+      skillsNoRegistry: '当前 DSH 没有技能注册表（dsh-skill 未加载）。',
+      skillsRefreshFailed: '刷新失败',
+      skillsPath: '路径',
+      skillsInvocation: '调用方式',
+      skillsNoDescription: '（没有描述）',
+      skillsReading: '正在读取文件…',
+      skillsHidden: '系统目录里的技能不在这里管理。',
     }
 
     const en = {
@@ -349,6 +420,76 @@ window.__ModuleLoader__.load({
       noArchivedProject: 'No archived projects',
       expandSessions: 'Show {n} more sessions',
       collapseSessions: 'Show less',
+      skillsNav: 'Skills',
+      skillsTitle: 'Skills',
+      skillsIntro:
+        'Every skill DSH currently loads is listed here: the official bundle, your own installs, project skills, and runtime registrations. Uploaded or newly created skills are written to the install location below and show up in the next session catalog.',
+      skillsSearch: 'Search skill names or descriptions',
+      skillsAll: 'All',
+      skillsOfficial: 'Official',
+      skillsUser: 'Mine',
+      skillsProject: 'Project',
+      skillsRuntime: 'Runtime',
+      skillsOther: 'Other',
+      skillsEmpty: 'No skills yet. Use “Upload skill” to add a skill folder or a SKILL.md.',
+      skillsFilterEmpty: 'No skills in this category.',
+      skillsLoading: 'Reading skills…',
+      skillsError: 'Could not read skills',
+      skillsRefresh: 'Refresh',
+      skillsUpload: 'Upload skill',
+      skillsNew: 'New skill',
+      skillsUserRoot: 'Installed at: {path}',
+      skillsSourceUserDsh: 'DSH user folder',
+      skillsSourceUserAgents: 'Shared agent folder',
+      skillsSourceCustom: 'Custom folder',
+      skillsSourceProjectDsh: 'Project .dsh',
+      skillsSourceProjectAgents: 'Project .agents',
+      skillsSourceBundled: 'Official',
+      skillsSourceRuntime: 'Runtime',
+      skillsModelOnly: 'Model only',
+      skillsUserOnly: 'User only',
+      skillsModelUser: 'Model + user',
+      skillsDetail: 'Skill details',
+      skillsDetailLoading: 'Reading SKILL.md…',
+      skillsDetailError: 'Could not read the skill body',
+      skillsTruncated: 'The body is too long; only the first 256 KB is shown.',
+      skillsDelete: 'Delete skill',
+      skillsDeleteConfirm: 'Delete “{name}”? It moves to task-folders/skill-trash and can be recovered from disk.',
+      skillsDeleted: 'Skill deleted (recover it from skill-trash)',
+      skillsDeleteFailed: 'Delete failed',
+      skillsUploadTitle: 'Upload skill',
+      skillsNewTitle: 'New skill',
+      skillsUploadHint: 'Drop a skill folder / SKILL.md here, or pick from disk',
+      skillsChooseFolder: 'Choose folder',
+      skillsChooseFiles: 'Choose files',
+      skillsDropHere: 'Release to read',
+      skillsFiles: 'Selected files',
+      skillsNoFiles: 'No files selected yet',
+      skillsDetected: 'Detected skill: {name}',
+      skillsNotDetected: 'No SKILL.md found; a single .md upload is installed as a skill',
+      skillsName: 'Skill name (kebab-case)',
+      skillsNameHint: 'Lowercase letters, digits and hyphens, e.g. report-builder',
+      skillsDescription: 'One-line description',
+      skillsDescriptionHint: 'The model uses it to decide when to load this skill',
+      skillsWhenToUse: 'When to use (optional)',
+      skillsBody: 'Skill body (everything after the frontmatter)',
+      skillsInstall: 'Install',
+      skillsInstalling: 'Installing…',
+      skillsInstalled: 'Skill “{name}” installed',
+      skillsInstallFailed: 'Install failed',
+      skillsExists: 'A skill with that name already exists. Overwrite it?',
+      skillsOverwrite: 'Overwrite',
+      skillsClose: 'Close',
+      skillsCancel: 'Cancel',
+      skillsTooLarge: 'Files too large (up to {size} per install)',
+      skillsIncomplete: 'A skill provider did not finish reading; the list may be missing entries.',
+      skillsNoRegistry: 'This DSH has no skill registry (dsh-skill is not loaded).',
+      skillsRefreshFailed: 'Refresh failed',
+      skillsPath: 'Path',
+      skillsInvocation: 'Invocation',
+      skillsNoDescription: '(no description)',
+      skillsReading: 'Reading files…',
+      skillsHidden: 'Skills in the system folder are not managed here.',
     }
 
     /**
@@ -740,17 +881,220 @@ window.__ModuleLoader__.load({
  .tsb-restore { flex: 0 0 auto; height: 20px; padding: 0 6px; border: 0; border-radius: var(--dsw-radius-sm); background: transparent; color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 17px; cursor: pointer; opacity: .7; }
  .tsb-row:hover .tsb-restore { opacity: 1; }
  .tsb-restore:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+
+ /* ---- 设置 → 技能（v0.8）：照设置页自己的尺度：18px 标题、13px 正文、760px 列宽 ---- */
+ .tsk-section { display: flex; flex-direction: column; gap: 12px; max-width: 760px; color: var(--dsw-alias-label-primary); }
+ .tsk-heading { margin: 0; font-size: 18px; font-weight: 600; line-height: 26px; }
+ .tsk-intro { margin: 0; color: var(--dsw-alias-label-tertiary); font-size: 13px; line-height: 20px; }
+ .tsk-toolbar { display: flex; align-items: center; gap: 8px; }
+ .tsk-search {
+   flex: 1 1 auto;
+   min-width: 0;
+   height: 30px;
+   padding: 0 10px 0 28px;
+   border: .5px solid var(--dsw-alias-border-l2);
+   border-radius: var(--dsw-radius-sm);
+   background-color: var(--dsw-alias-bg-layer-1);
+   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23888' stroke-width='1.2'%3E%3Ccircle cx='7' cy='7' r='4.3'/%3E%3Cpath d='M10.2 10.2 14 14'/%3E%3C/svg%3E");
+   background-repeat: no-repeat;
+   background-position: 9px center;
+   background-size: 14px 14px;
+   color: var(--dsw-alias-label-primary);
+   font: inherit;
+   font-size: 13px;
+ }
+ .tsk-search::placeholder { color: var(--dsw-alias-label-tertiary); }
+ .tsk-search:focus-visible { outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color); outline-offset: 1px; }
+ .tsk-btn {
+   flex: 0 0 auto;
+   height: 28px;
+   padding: 0 10px;
+   border: .5px solid var(--dsw-alias-border-l2);
+   border-radius: var(--dsw-radius-sm);
+   background: var(--dsw-alias-bg-layer-1);
+   color: var(--dsw-alias-label-primary);
+   font: inherit;
+   font-size: 12px;
+   line-height: 26px;
+   cursor: pointer;
+ }
+ .tsk-btn:hover { background: var(--dsw-alias-interactive-bg-hover); }
+ .tsk-btn[disabled] { cursor: default; opacity: .5; }
+ /* 主按钮：填充色与前景色都走 DSH 自己的按钮令牌。深色主题下 brand-primary 是近白，
+    写死 color:#fff 会把字吃掉——label-primary-foreground 正好是它的反色（浅色主题白字、深色主题黑字）。 */
+ .tsk-btn.is-primary { border-color: transparent; background: var(--dsw-alias-button-primary-fill, var(--dsw-alias-brand-primary)); color: var(--dsw-alias-label-primary-foreground, #fff); }
+ .tsk-btn.is-primary:hover { background: var(--dsw-alias-button-primary-hover, var(--dsw-alias-brand-primary)); }
+ .tsk-btn.is-danger { color: var(--dsw-alias-state-error-primary); }
+ .tsk-tabs { display: flex; align-items: flex-end; gap: 20px; border-bottom: .5px solid var(--dsw-alias-border-l2); margin-top: 2px; }
+ .tsk-tab {
+   position: relative;
+   padding: 7px 1px 9px;
+   border: 0;
+   background: transparent;
+   color: var(--dsw-alias-label-tertiary);
+   font: inherit;
+   font-size: 13px;
+   line-height: 20px;
+   cursor: pointer;
+ }
+ .tsk-tab:hover, .tsk-tab[data-active='true'] { color: var(--dsw-alias-label-primary); }
+ .tsk-tab[data-active='true']::after {
+   content: '';
+   position: absolute;
+   left: 0;
+   right: 0;
+   bottom: -1px;
+   height: 2px;
+   border-radius: 2px 2px 0 0;
+   background: var(--dsw-alias-label-primary);
+ }
+ .tsk-tab:focus-visible { outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color); outline-offset: 2px; border-radius: 2px; }
+ .tsk-tab-count { margin-left: 5px; color: var(--dsw-alias-label-tertiary); font-size: 11px; }
+ .tsk-list { display: flex; flex-direction: column; padding: 2px 0; }
+ .tsk-row {
+   display: flex;
+   flex-direction: column;
+   gap: 3px;
+   width: 100%;
+   padding: 9px 8px;
+   border: 0;
+   border-bottom: .5px solid var(--dsw-alias-border-l1);
+   border-radius: var(--dsw-radius-md);
+   background: transparent;
+   color: inherit;
+   text-align: left;
+   font: inherit;
+   cursor: pointer;
+ }
+ .tsk-row:hover { background: var(--dsw-alias-bg-layer-2); }
+ .tsk-row:last-child { border-bottom: 0; }
+ .tsk-row-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+ .tsk-name { flex: 0 0 auto; font-size: 13px; font-weight: 600; line-height: 19px; }
+ .tsk-badge {
+   flex: 0 0 auto;
+   padding: 1px 6px;
+   border-radius: 4px;
+   background: var(--dsw-alias-bg-layer-2);
+   color: var(--dsw-alias-label-secondary);
+   font-size: 11px;
+   line-height: 16px;
+ }
+ .tsk-badge.is-official { color: var(--dsw-alias-brand-primary); }
+ .tsk-desc {
+   margin: 0;
+   display: -webkit-box;
+   -webkit-box-orient: vertical;
+   -webkit-line-clamp: 2;
+   overflow: hidden;
+   color: var(--dsw-alias-label-secondary);
+   font-size: 12px;
+   line-height: 18px;
+ }
+ .tsk-path {
+   margin: 1px 0 0;
+   overflow: hidden;
+   text-overflow: ellipsis;
+   white-space: nowrap;
+   color: var(--dsw-alias-label-tertiary);
+   font-size: 11px;
+   line-height: 15px;
+ }
+ .tsk-empty { padding: 18px 8px; color: var(--dsw-alias-label-tertiary); font-size: 13px; line-height: 20px; }
+ .tsk-notice { padding: 6px 10px; border-radius: var(--dsw-radius-sm); background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 18px; }
+ .tsk-notice.is-error { color: var(--dsw-alias-state-error-primary); }
+ .tsk-hint { color: var(--dsw-alias-label-tertiary); font-size: 11px; line-height: 16px; }
+ .tsk-overlay {
+   position: fixed;
+   inset: 0;
+   z-index: 1100;
+   display: flex;
+   align-items: center;
+   justify-content: center;
+   padding: 20px;
+   background: rgba(0, 0, 0, .34);
+ }
+ .tsk-modal {
+   display: flex;
+   flex-direction: column;
+   width: min(720px, 100%);
+   max-height: min(82vh, 900px);
+   overflow: hidden;
+   border: .5px solid var(--dsw-alias-border-l2);
+   border-radius: 12px;
+   background: var(--dsw-alias-bg-overlay);
+   box-shadow: 0 18px 48px rgba(0, 0, 0, .28);
+ }
+ .tsk-modal-head { display: flex; align-items: center; gap: 8px; padding: 13px 18px; border-bottom: .5px solid var(--dsw-alias-border-l1); }
+ .tsk-modal-title { flex: 1 1 auto; margin: 0; font-size: 15px; font-weight: 600; line-height: 22px; }
+ .tsk-modal-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px 18px; display: flex; flex-direction: column; gap: 10px; }
+ .tsk-modal-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 11px 18px; border-top: .5px solid var(--dsw-alias-border-l1); }
+ .tsk-modal-foot .tsk-hint { flex: 1 1 auto; }
+ .tsk-field { display: flex; flex-direction: column; gap: 4px; }
+ .tsk-label { color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 18px; }
+ .tsk-input, .tsk-textarea {
+   width: 100%;
+   box-sizing: border-box;
+   padding: 7px 9px;
+   border: .5px solid var(--dsw-alias-border-l2);
+   border-radius: var(--dsw-radius-sm);
+   background: var(--dsw-alias-bg-layer-1);
+   color: var(--dsw-alias-label-primary);
+   font: inherit;
+   font-size: 13px;
+   line-height: 19px;
+ }
+ .tsk-textarea { min-height: 130px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 18px; }
+ .tsk-input:focus-visible, .tsk-textarea:focus-visible { outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color); outline-offset: 1px; }
+ .tsk-drop {
+   display: flex;
+   flex-direction: column;
+   align-items: center;
+   gap: 4px;
+   padding: 20px 14px;
+   border: 1px dashed var(--dsw-alias-border-l2);
+   border-radius: 8px;
+   background: var(--dsw-alias-bg-layer-1);
+   color: var(--dsw-alias-label-secondary);
+   font-size: 12px;
+   line-height: 18px;
+   text-align: center;
+ }
+ .tsk-drop.is-over { border-color: var(--dsw-alias-brand-primary); background: var(--dsw-alias-bg-layer-2); }
+ .tsk-files { display: flex; flex-direction: column; gap: 2px; max-height: 160px; overflow: auto; padding: 2px 0; }
+ .tsk-file { display: flex; gap: 8px; min-width: 0; color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 17px; }
+ .tsk-file-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+ .tsk-file-size { flex: 0 0 auto; color: var(--dsw-alias-label-tertiary); }
+ .tsk-content {
+   margin: 0;
+   max-height: 46vh;
+   overflow: auto;
+   padding: 10px;
+   border: .5px solid var(--dsw-alias-border-l1);
+   border-radius: var(--dsw-radius-sm);
+   background: var(--dsw-alias-bg-layer-1);
+   color: var(--dsw-alias-label-primary);
+   white-space: pre-wrap;
+   word-break: break-word;
+   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+   font-size: 12px;
+   line-height: 18px;
+ }
+ @media (max-width: 640px) {
+   .tsk-toolbar { flex-wrap: wrap; }
+   .tsk-search { flex-basis: 100%; }
+ }
  `
 
     /**
      * 发一次 Host 请求。
      * @param {string} method - 操作名。
      * @param {object} [payload] - 请求体。
+     * @param {number} [timeoutMs] - 超时（安装大技能包时放宽）。
      * @returns {Promise<any>} 应答里的 value。
      */
-    async function callHost(method, payload) {
+    async function callHost(method, payload, timeoutMs = REQUEST_TIMEOUT_MS) {
       const controller = typeof AbortController === 'function' ? new AbortController() : undefined
-      const timer = controller === undefined ? undefined : setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+      const timer = controller === undefined ? undefined : setTimeout(() => controller.abort(), timeoutMs)
       try {
         const response = await fetch(`${API_PREFIX}/${method}`, {
           method: 'POST',
@@ -760,7 +1104,11 @@ window.__ModuleLoader__.load({
         })
         const data = await response.json().catch(() => null)
         if (!response.ok || data === null || data.ok !== true) {
-          throw new Error(data?.error?.message ?? `HTTP ${response.status}`)
+          const failure = new Error(data?.error?.message ?? `HTTP ${response.status}`)
+          // `skill-exists` 这类错误码要交给界面做二次确认（覆盖安装），不能只剩一句文案。
+          failure.code = data?.error?.code ?? ''
+          failure.status = response.status
+          throw failure
         }
         return data.value
       } finally {
@@ -896,27 +1244,56 @@ window.__ModuleLoader__.load({
 
     /**
      * 首屏摘要回传：用来在没有浏览器控制台时确认侧栏拿到了数据。
+     *
+     * 顺手带上技能目录的一份摘要（总数 / 分类 / 前几个名字 / 走的哪个 scope）：设置页
+     * 最容易出问题的地方是「注册表挂在哪一层」，从 note 文件里一眼就能看出 Host 到底是
+     * 从当前会话的预设层读的（session）、默认预设租约（preset），还是只读到全局层（global）。
      * @param {object} state - Host 状态。
      */
     function reportFirstState(state) {
       try {
-        void fetch(`${API_PREFIX}/note`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            at: new Date().toISOString(),
-            firstState: {
-              tasksRoot: state?.tasksRoot ?? null,
-              taskWorkspaceId: state?.taskWorkspaceId ?? null,
-              canCreate: state?.canCreate ?? null,
-              days: (state?.dayGroups ?? []).map((group) => ({ day: group.day, sessions: group.sessions.length })),
-              workspaces: (state?.workspaces ?? []).slice(0, 12).map((workspace) => ({
-                title: workspace.title,
-                sessions: Array.isArray(workspace.sessionIds) ? workspace.sessionIds.length : -1,
-              })),
-            },
-          }),
-        }).catch(() => {})
+        void (async () => {
+          let skills
+          try {
+            const value = await callHost('skills', {})
+            const rows = Array.isArray(value?.skills) ? value.skills : []
+            const byCategory = {}
+            const bySource = {}
+            for (const row of rows) {
+              byCategory[row.category] = (byCategory[row.category] ?? 0) + 1
+              bySource[row.source] = (bySource[row.source] ?? 0) + 1
+            }
+            skills = {
+              total: rows.length,
+              scopeKind: value?.scopeKind ?? null,
+              complete: value?.complete ?? null,
+              userRoot: value?.userRoot ?? null,
+              byCategory,
+              bySource,
+              names: rows.slice(0, 12).map((row) => row.name),
+            }
+          } catch (failure) {
+            skills = { error: failure instanceof Error ? failure.message : String(failure) }
+          }
+          await fetch(`${API_PREFIX}/note`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              at: new Date().toISOString(),
+              firstState: {
+                tasksRoot: state?.tasksRoot ?? null,
+                taskWorkspaceId: state?.taskWorkspaceId ?? null,
+                canCreate: state?.canCreate ?? null,
+                days: (state?.dayGroups ?? []).map((group) => ({ day: group.day, sessions: group.sessions.length })),
+                workspaces: (state?.workspaces ?? []).slice(0, 12).map((workspace) => ({
+                  title: workspace.title,
+                  sessions: Array.isArray(workspace.sessionIds) ? workspace.sessionIds.length : -1,
+                })),
+                skills,
+              },
+            }),
+          }).catch(() => {})
+        })()
       } catch {
         /* 诊断失败无所谓 */
       }
@@ -2354,6 +2731,1021 @@ window.__ModuleLoader__.load({
       }
     }
 
+    // ================= v0.8：设置 → 技能 =================
+    //
+    // 设置壳（ui-settings-general）把导航投影成 `settings.section` 账本，一页一个注册项；
+    // 我们这一页只做三件事：
+    //   1. 读：`ctx.skills` 已经把官方 bundled、用户目录、项目目录与运行时注册的技能合并好了，
+    //      这里按来源分类（官方 / 我的 / 项目 / 其他），并标出哪些能删（只有用户技能根里的）；
+    //   2. 装：拖目录 / 选 SKILL.md / 表单新建，统一交给 Host 的 `/task-folders/api/installSkill`，
+    //      由它先落临时目录再整目录 rename；
+    //   3. 删：只对 `<DSH_HOME>/skills` 里的技能露出删除按钮，Host 侧还有一道 403 兜底。
+    //
+    // 关键取舍：**列表与正文都以 Host 的注册表为准**，客户端不自己扫盘——否则分类、重名裁决、
+    // 项目根定位都会和 DSH 自己的技能目录对不上。客户端只做「把用户选的文件读成字节」这一件事。
+
+    /** 上传上限：与 Host 的 lib/skills.js 保持一致（客户端先拦，省得白传 8MB）。 */
+    const SKILL_TOTAL_LIMIT = 8 * 1024 * 1024
+    const SKILL_FILE_LIMIT = 2 * 1024 * 1024
+    const SKILL_FILE_COUNT = 120
+
+    /** 分类顺序与词典键。`other` 只在真有来源不明的技能时露出来。 */
+    const SKILL_CATEGORY_LABEL = {
+      all: 'skillsAll',
+      official: 'skillsOfficial',
+      user: 'skillsUser',
+      project: 'skillsProject',
+      runtime: 'skillsRuntime',
+      other: 'skillsOther',
+    }
+    const SKILL_CATEGORY_RANK = { official: 0, user: 1, project: 2, runtime: 3, other: 4 }
+
+    /** 来源 → 角标文案。未知来源直接把 source 原样显示，别藏。 */
+    const SKILL_SOURCE_LABEL = {
+      bundled: 'skillsSourceBundled',
+      'user-dsh': 'skillsSourceUserDsh',
+      'user-agents': 'skillsSourceUserAgents',
+      custom: 'skillsSourceCustom',
+      'project-dsh': 'skillsSourceProjectDsh',
+      'project-agents': 'skillsSourceProjectAgents',
+      runtime: 'skillsSourceRuntime',
+    }
+
+    /**
+     * 来源分类（Host 一般已经给了 `category`；这里做兜底，保证老 Host 也能分类）。
+     * @param {string} source - `SkillSummary.source`。
+     * @returns {'official'|'user'|'project'|'runtime'|'other'} 分类。
+     */
+    function skillCategoryOf(source) {
+      if (source === 'bundled') return 'official'
+      if (source === 'user-dsh' || source === 'user-agents' || source === 'custom') return 'user'
+      if (source === 'project-dsh' || source === 'project-agents') return 'project'
+      if (source === 'runtime') return 'runtime'
+      return 'other'
+    }
+
+    /**
+     * 分类兜底读取。
+     * @param {object} skill - Host 投影的技能视图。
+     * @returns {string} 分类。
+     */
+    function categoryOf(skill) {
+      return typeof skill?.category === 'string' && skill.category !== '' ? skill.category : skillCategoryOf(skill?.source)
+    }
+
+    /**
+     * 来源角标：优先词典，未知来源原样显示。
+     * @param {(key: string) => string} t - 词典绑定。
+     * @param {string} source - 来源。
+     * @returns {string} 展示文本。
+     */
+    function skillSourceText(t, source) {
+      const key = SKILL_SOURCE_LABEL[source]
+      return key === undefined ? String(source ?? '') : t(key)
+    }
+
+    /**
+     * 调用方式角标。
+     * @param {(key: string) => string} t - 词典绑定。
+     * @param {{modelInvocable?: boolean, userInvocable?: boolean}} invocation - 调用策略。
+     * @returns {string} 展示文本。
+     */
+    function skillInvocationText(t, invocation) {
+      const model = invocation?.modelInvocable !== false
+      const user = invocation?.userInvocable !== false
+      if (model && user) return t('skillsModelUser')
+      if (model) return t('skillsModelOnly')
+      if (user) return t('skillsUserOnly')
+      return ''
+    }
+
+    /**
+     * 人类可读的字节数。
+     * @param {number} bytes - 字节。
+     * @returns {string} `12 KB` / `1.2 MB`。
+     */
+    function formatBytes(bytes) {
+      if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
+      if (bytes < 1024) return `${bytes} B`
+      if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+      return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+    }
+
+    /**
+     * 规整上传相对路径（与 Host 侧同一套规则；越界返回 undefined）。
+     * @param {string} value - 原始路径。
+     * @returns {string|undefined} 规整后的路径。
+     */
+    function normalizeUploadPath(value) {
+      if (typeof value !== 'string') return undefined
+      const cleaned = value.replace(/\\/g, '/').replace(/^\.\//, '').trim()
+      if (cleaned === '' || cleaned.startsWith('/') || /^[A-Za-z]:/.test(cleaned)) return undefined
+      const parts = cleaned.split('/').filter((part) => part !== '' && part !== '.')
+      if (parts.length === 0 || parts.some((part) => part === '..' || part.includes('\u0000'))) return undefined
+      return parts.join('/')
+    }
+
+    /**
+     * 目录上传去掉公共根（与 Host 侧一致：多文件才去根；单文件只有「目录里的 SKILL.md」才去）。
+     * @param {{path: string}[]} files - 文件列表。
+     * @returns {{path: string}[]} 处理后的列表。
+     */
+    function stripUploadRoot(files) {
+      if (files.length === 0) return files
+      const segments = files.map((file) => file.path.split('/'))
+      const root = segments[0][0]
+      if (!segments.every((parts) => parts.length > 1 && parts[0] === root)) return files
+      if (files.length === 1 && segments[0][1].toLowerCase() !== 'skill.md') return files
+      return files.map((file, index) => ({ ...file, path: segments[index].slice(1).join('/') }))
+    }
+
+    /**
+     * 客户端预览用的 frontmatter 读取（只认顶层简单标量；真正的校验在 Host）。
+     * @param {string} text - SKILL.md 全文。
+     * @returns {{name?: string, description?: string}} 识别结果。
+     */
+    function detectSkillHeader(text) {
+      if (typeof text !== 'string') return {}
+      const match = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---/u.exec(text)
+      if (match === null) return {}
+      const result = {}
+      for (const line of match[1].split(/\r?\n/)) {
+        const field = /^([A-Za-z0-9_-]+)\s*:\s*(.*)$/.exec(line)
+        if (field === null) continue
+        let value = field[2].trim()
+        if (value.startsWith('"') && value.endsWith('"') && value.length >= 2) {
+          try {
+            value = JSON.parse(value)
+          } catch {
+            value = value.slice(1, -1)
+          }
+        } else if (value.startsWith("'") && value.endsWith("'") && value.length >= 2) {
+          value = value.slice(1, -1).replace(/''/g, "'")
+        }
+        if (field[1] === 'name' || field[1] === 'description') result[field[1]] = value
+      }
+      return result
+    }
+
+    /**
+     * ArrayBuffer → base64（分块，避免 `String.fromCharCode(...几 MB)` 爆栈）。
+     * @param {ArrayBuffer} buffer - 字节。
+     * @returns {string} base64。
+     */
+    function base64FromBuffer(buffer) {
+      const bytes = new Uint8Array(buffer)
+      const chunk = 0x8000
+      let binary = ''
+      for (let index = 0; index < bytes.length; index += chunk) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(index, index + chunk))
+      }
+      return btoa(binary)
+    }
+
+    /**
+     * 从拖放事件里递归收集文件（目录也能拖）。拿不到 `webkitGetAsEntry` 就退回 files。
+     * @param {DataTransfer|undefined} dataTransfer - 拖放数据。
+     * @returns {Promise<{path: string, file: File}[]>} 文件列表。
+     */
+    async function collectDroppedFiles(dataTransfer) {
+      const entries = []
+      const items = dataTransfer?.items
+      if (items !== undefined && items !== null && items.length > 0 && typeof items[0]?.webkitGetAsEntry === 'function') {
+        for (const item of items) {
+          const entry = item.webkitGetAsEntry()
+          if (entry !== null && entry !== undefined) await walkDroppedEntry(entry, '', entries)
+        }
+      }
+      if (entries.length === 0) {
+        for (const file of dataTransfer?.files ?? []) {
+          entries.push({ path: file.webkitRelativePath || file.name, file })
+        }
+      }
+      return entries
+    }
+
+    /**
+     * 递归读一个拖放条目。
+     * @param {object} entry - FileSystemEntry。
+     * @param {string} prefix - 已经走过的目录前缀。
+     * @param {{path: string, file: File}[]} out - 收集器。
+     * @returns {Promise<void>} 完成。
+     */
+    async function walkDroppedEntry(entry, prefix, out) {
+      if (entry.isFile === true) {
+        const file = await new Promise((resolve, reject) => entry.file(resolve, reject))
+        out.push({ path: `${prefix}${file.name}`, file })
+        return
+      }
+      if (entry.isDirectory !== true) return
+      const reader = entry.createReader()
+      const children = []
+      for (;;) {
+        const batch = await new Promise((resolve, reject) => reader.readEntries(resolve, reject))
+        if (batch.length === 0) break
+        children.push(...batch)
+      }
+      for (const child of children) await walkDroppedEntry(child, `${prefix}${entry.name}/`, out)
+    }
+
+    /**
+     * 把用户选的文件整理成一次可安装的技能（客户端预览）。
+     * @param {{path: string, file: File}[]} entries - 文件列表。
+     * @param {(key: string) => string} t - 词典绑定。
+     * @returns {Promise<{files: {path: string, file: File, size: number}[], name: string, description: string, hasSkillMd: boolean}>} 整理结果。
+     */
+    async function prepareUploadEntries(entries, t) {
+      const files = []
+      let total = 0
+      for (const entry of Array.isArray(entries) ? entries : []) {
+        const rel = normalizeUploadPath(entry?.path)
+        if (rel === undefined || entry?.file === undefined) continue
+        const size = typeof entry.file.size === 'number' ? entry.file.size : 0
+        if (size > SKILL_FILE_LIMIT) {
+          throw new Error(`${rel}：${t('skillsTooLarge').replace('{size}', formatBytes(SKILL_FILE_LIMIT))}`)
+        }
+        total += size
+        files.push({ path: rel, file: entry.file, size })
+      }
+      if (files.length === 0) throw new Error(t('skillsNoFiles'))
+      if (files.length > SKILL_FILE_COUNT) {
+        throw new Error(t('skillsTooLarge').replace('{size}', formatBytes(SKILL_TOTAL_LIMIT)))
+      }
+      if (total > SKILL_TOTAL_LIMIT) {
+        throw new Error(t('skillsTooLarge').replace('{size}', formatBytes(SKILL_TOTAL_LIMIT)))
+      }
+
+      let prepared = stripUploadRoot(files)
+      let skillIndex = prepared.findIndex((file) => file.path.toLowerCase() === 'skill.md')
+      if (skillIndex < 0 && prepared.length === 1 && /^[^/]+\.md$/i.test(prepared[0].path)) {
+        prepared = [{ ...prepared[0], path: 'SKILL.md' }]
+        skillIndex = 0
+      }
+      let name = ''
+      let description = ''
+      if (skillIndex >= 0 && typeof prepared[skillIndex].file.text === 'function') {
+        const header = detectSkillHeader(await prepared[skillIndex].file.text())
+        name = typeof header.name === 'string' ? header.name : ''
+        description = typeof header.description === 'string' ? header.description : ''
+      }
+      return { files: prepared, name, description, hasSkillMd: skillIndex >= 0 }
+    }
+
+    /**
+     * 造「设置 → 技能」页组件。
+     * @param {object} ctx - 客户端插件上下文（读当前会话 cwd，供项目技能根定位）。
+     * @returns {Function} React 组件。
+     */
+    function createSkillsSection(ctx) {
+      /**
+       * 兜底翻译器：设置壳通常会把页面词典绑定成 `props.t` 递进来（`locale` 注册项），
+       * 但不同 DSH 版本对 slot 组件的 props 注入不完全一致。`ctx.locale.bind(NS)` 是我们
+       * 自己注册的同一份词典，拿它兜底，页面永远不会退化成 `skillsTitle` 这种键名。
+       */
+      const boundT = typeof ctx.locale?.bind === 'function' ? ctx.locale.bind(NS) : null
+
+      /**
+       * 当前会话的 cwd + id：cwd 定位项目技能根，id 让 Host 复用这个会话的预设层
+       * （`agentPresets.serviceFor`）。拿不到就都不传，Host 退回默认预设 / 默认目录。
+       * @returns {{cwd?: string, sessionId?: string}} 当前会话信息。
+       */
+      function currentSession() {
+        try {
+          const binding = ctx.get('uiSession')?.current?.getSnapshot?.()
+          const candidates = [
+            binding?.session?.header?.cwd,
+            binding?.session?.cwd,
+            binding?.cwd,
+            binding?.entry?.session?.header?.cwd,
+          ]
+          const cwd = candidates.find((candidate) => typeof candidate === 'string' && candidate !== '')
+          const sessionId =
+            typeof binding?.sessionId === 'string'
+              ? binding.sessionId
+              : typeof binding?.key === 'string'
+                ? binding.key
+                : undefined
+          return {
+            ...(cwd === undefined ? {} : { cwd }),
+            ...(sessionId === undefined || sessionId === '' ? {} : { sessionId }),
+          }
+        } catch {
+          /* 读不到就当没有当前会话 */
+        }
+        return {}
+      }
+
+      /**
+       * 把失败原因变成一句人话。
+       * @param {unknown} failure - 异常。
+       * @returns {string} 消息。
+       */
+      function messageOf(failure) {
+        return failure instanceof Error ? failure.message : String(failure)
+      }
+
+      /**
+       * 设置页：技能列表 + 上传/新建 + 详情/删除。
+       * @param {object} props - 设置壳给的 props（`t` 来自 locale 绑定）。
+       * @returns {object} React 元素。
+       */
+      return function SkillsSection(props) {
+        const t = typeof props?.t === 'function' ? props.t : boundT ?? ((key) => key)
+        const [data, setData] = React.useState(null)
+        const [loading, setLoading] = React.useState(true)
+        const [error, setError] = React.useState('')
+        const [ui, setUi] = React.useState({ query: '', filter: 'all', modal: null, notice: '', busy: '' })
+        const [detail, setDetail] = React.useState({ loading: false, content: '', error: '', truncated: false })
+        const [upload, setUpload] = React.useState({
+          files: [],
+          name: '',
+          description: '',
+          reading: false,
+          error: '',
+          hasSkillMd: false,
+          dragging: false,
+        })
+        const [draft, setDraft] = React.useState({ name: '', description: '', whenToUse: '', body: '', error: '' })
+        const [conflict, setConflict] = React.useState('')
+        const [confirmDelete, setConfirmDelete] = React.useState(false)
+        const mounted = React.useRef(true)
+        const fileInput = React.useRef(null)
+        const folderInput = React.useRef(null)
+
+        React.useEffect(
+          () => () => {
+            mounted.current = false
+          },
+          [],
+        )
+
+        /** 读一份技能列表；失败只落在页内，不白屏。 */
+        const refresh = React.useCallback(async () => {
+          setLoading(true)
+          setError('')
+          try {
+            const session = currentSession()
+            const value = await callHost('skills', session)
+            if (mounted.current) setData(value)
+          } catch (failure) {
+            if (mounted.current) setError(messageOf(failure))
+          } finally {
+            if (mounted.current) setLoading(false)
+          }
+        }, [])
+
+        React.useEffect(() => {
+          void refresh()
+        }, [refresh])
+
+        /**
+         * 安装成功后等目录刷新：dsh-skill-filesystem 监视磁盘，新技能通常几百毫秒内进目录。
+         * 轮询有上限，等不到也把最后一次结果留在页面上，不把成功说成失败。
+         * @param {string} name - 刚安装的技能名。
+         */
+        const refreshAfterInstall = React.useCallback(async (name) => {
+          for (let attempt = 0; attempt < 12; attempt += 1) {
+            try {
+              const session = currentSession()
+              const value = await callHost('skills', session)
+              if (!mounted.current) return
+              setData(value)
+              if (Array.isArray(value?.skills) && value.skills.some((skill) => skill.name === name)) return
+            } catch {
+              /* 下一次再试 */
+            }
+            await new Promise((resolve) => setTimeout(resolve, 300))
+          }
+        }, [])
+
+        /**
+         * 删除成功后等目录刷新：和安装一样轮询，确认这条真的从注册表里消失再停。
+         * @param {string} name - 刚删除的技能名。
+         */
+        const refreshAfterDelete = React.useCallback(async (name) => {
+          for (let attempt = 0; attempt < 12; attempt += 1) {
+            try {
+              const value = await callHost('skills', currentSession())
+              if (!mounted.current) return
+              setData(value)
+              if (!Array.isArray(value?.skills) || !value.skills.some((skill) => skill.name === name)) return
+            } catch {
+              /* 下一次再试 */
+            }
+            await new Promise((resolve) => setTimeout(resolve, 300))
+          }
+        }, [])
+
+        /** 关掉弹窗，顺手清掉冲突与二次确认状态。 */
+        const closeModal = React.useCallback(() => {
+          setUi((previous) => ({ ...previous, modal: null, busy: '' }))
+          setConflict('')
+          setConfirmDelete(false)
+          setDetail({ loading: false, content: '', error: '', truncated: false })
+        }, [])
+
+        // 弹窗打开时截住 Escape：设置壳自己也监听 Escape（会把整个设置面板关掉），
+        // 在 window 捕获阶段先停掉传播，只关我们这一层，别把用户填了一半的表单一起关掉。
+        React.useEffect(() => {
+          if (ui.modal === null) return undefined
+          const onKeyDown = (event) => {
+            if (event.key !== 'Escape') return
+            event.preventDefault()
+            event.stopPropagation()
+            closeModal()
+          }
+          window.addEventListener('keydown', onKeyDown, true)
+          return () => window.removeEventListener('keydown', onKeyDown, true)
+        }, [ui.modal, closeModal])
+
+        /**
+         * 打开详情：正文按名字现取（列表只带摘要，不带 body）。
+         * @param {object} skill - 列表里的技能。
+         */
+        const openDetail = React.useCallback(async (skill) => {
+          setUi((previous) => ({ ...previous, modal: { kind: 'detail', skill }, notice: '' }))
+          setConflict('')
+          setConfirmDelete(false)
+          setDetail({ loading: true, content: '', error: '', truncated: false })
+          try {
+            const session = currentSession()
+            const value = await callHost('skillDetail', { ...session, name: skill.name })
+            if (mounted.current) {
+              setDetail({
+                loading: false,
+                content: typeof value?.content === 'string' ? value.content : '',
+                error: '',
+                truncated: value?.truncated === true,
+              })
+            }
+          } catch (failure) {
+            if (mounted.current) setDetail({ loading: false, content: '', error: messageOf(failure), truncated: false })
+          }
+        }, [])
+
+        /** 打开上传弹窗：清掉上一次选的文件。 */
+        const openUpload = React.useCallback(() => {
+          setUpload({ files: [], name: '', description: '', reading: false, error: '', hasSkillMd: false, dragging: false })
+          setConflict('')
+          setUi((previous) => ({ ...previous, modal: { kind: 'upload' }, busy: '', notice: '' }))
+        }, [])
+
+        /** 打开新建弹窗。 */
+        const openCreate = React.useCallback(() => {
+          setDraft({ name: '', description: '', whenToUse: '', body: '', error: '' })
+          setConflict('')
+          setUi((previous) => ({ ...previous, modal: { kind: 'create' }, busy: '', notice: '' }))
+        }, [])
+
+        /**
+         * 收文件：读成「路径 + File」并识别 SKILL.md 的名字/描述。
+         * @param {{path: string, file: File}[]} entries - 文件列表。
+         */
+        const ingestFiles = React.useCallback(
+          async (entries) => {
+            setConflict('')
+            setUpload((previous) => ({ ...previous, files: [], reading: true, error: '', name: '', description: '' }))
+            try {
+              const prepared = await prepareUploadEntries(entries, t)
+              if (mounted.current) setUpload({ ...prepared, reading: false, error: '', dragging: false })
+            } catch (failure) {
+              if (mounted.current) {
+                setUpload((previous) => ({ ...previous, reading: false, dragging: false, error: messageOf(failure) }))
+              }
+            }
+          },
+          [t],
+        )
+
+        /**
+         * 从 `<input type="file">` 收文件。
+         * @param {object} event - change 事件。
+         */
+        const onPicked = React.useCallback(
+          (event) => {
+            const files = [...(event?.target?.files ?? [])]
+            if (typeof event?.target?.value === 'string') event.target.value = ''
+            void ingestFiles(files.map((file) => ({ path: file.webkitRelativePath || file.name, file })))
+          },
+          [ingestFiles],
+        )
+
+        /**
+         * 拖放：目录递归，文件直取。
+         * @param {object} event - drop 事件。
+         */
+        const onDrop = React.useCallback(
+          async (event) => {
+            event.preventDefault()
+            setUpload((previous) => ({ ...previous, dragging: false }))
+            const entries = await collectDroppedFiles(event.dataTransfer)
+            void ingestFiles(entries)
+          },
+          [ingestFiles],
+        )
+
+        /**
+         * 安装上传的目录 / 文件。
+         * @param {boolean} overwrite - 同名时是否覆盖。
+         */
+        const installUpload = React.useCallback(
+          async (overwrite) => {
+            if (upload.files.length === 0 || ui.busy === 'install') return
+            setUpload((previous) => ({ ...previous, error: '' }))
+            setUi((previous) => ({ ...previous, busy: 'install' }))
+            try {
+              const files = []
+              for (const entry of upload.files) {
+                const buffer = await entry.file.arrayBuffer()
+                files.push({ path: entry.path, data: base64FromBuffer(buffer) })
+              }
+              const value = await callHost('installSkill', { files, overwrite }, 60_000)
+              if (!mounted.current) return
+              setUi((previous) => ({
+                ...previous,
+                modal: null,
+                busy: '',
+                notice: t('skillsInstalled').replace('{name}', value?.name ?? ''),
+              }))
+              setConflict('')
+              void refreshAfterInstall(value?.name ?? '')
+            } catch (failure) {
+              if (!mounted.current) return
+              const message = messageOf(failure)
+              if (failure?.code === 'skill-exists') setConflict(upload.name)
+              setUpload((previous) => ({ ...previous, error: message }))
+              setUi((previous) => ({ ...previous, busy: '' }))
+            }
+          },
+          [upload, ui.busy, t, refreshAfterInstall],
+        )
+
+        /**
+         * 安装「新建技能」表单。
+         * @param {boolean} overwrite - 同名时是否覆盖。
+         */
+        const installDraft = React.useCallback(
+          async (overwrite) => {
+            if (ui.busy === 'install') return
+            const name = draft.name.trim()
+            if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)) {
+              setDraft((previous) => ({ ...previous, error: `${t('skillsName')}：${t('skillsNameHint')}` }))
+              return
+            }
+            if (draft.description.trim() === '') {
+              setDraft((previous) => ({ ...previous, error: t('skillsDescription') }))
+              return
+            }
+            setDraft((previous) => ({ ...previous, error: '' }))
+            setUi((previous) => ({ ...previous, busy: 'install' }))
+            try {
+              const value = await callHost(
+                'installSkill',
+                {
+                  draft: {
+                    name,
+                    description: draft.description.trim(),
+                    whenToUse: draft.whenToUse.trim(),
+                    body: draft.body,
+                  },
+                  overwrite,
+                },
+                60_000,
+              )
+              if (!mounted.current) return
+              setUi((previous) => ({
+                ...previous,
+                modal: null,
+                busy: '',
+                notice: t('skillsInstalled').replace('{name}', value?.name ?? name),
+              }))
+              setConflict('')
+              void refreshAfterInstall(value?.name ?? name)
+            } catch (failure) {
+              if (!mounted.current) return
+              if (failure?.code === 'skill-exists') setConflict(name)
+              setDraft((previous) => ({ ...previous, error: messageOf(failure) }))
+              setUi((previous) => ({ ...previous, busy: '' }))
+            }
+          },
+          [draft, ui.busy, t, refreshAfterInstall],
+        )
+
+        /**
+         * 删除一个用户技能（Host 侧还会再验一次路径）。
+         * @param {object} skill - 当前详情里的技能。
+         */
+        const removeSkill = React.useCallback(
+          async (skill) => {
+            if (ui.busy === 'delete') return
+            setUi((previous) => ({ ...previous, busy: 'delete' }))
+            try {
+              await callHost('deleteSkill', { name: skill.name, path: skill.path })
+              if (!mounted.current) return
+              setUi((previous) => ({
+                ...previous,
+                busy: '',
+                modal: null,
+                notice: t('skillsDeleted').replace('{name}', skill.name),
+              }))
+              setConfirmDelete(false)
+              void refreshAfterDelete(skill.name)
+            } catch (failure) {
+              if (!mounted.current) return
+              setDetail((previous) => ({ ...previous, error: messageOf(failure) }))
+              setUi((previous) => ({ ...previous, busy: '' }))
+            }
+          },
+          [ui.busy, t, refreshAfterDelete],
+        )
+
+        const allSkills = Array.isArray(data?.skills) ? data.skills : []
+        const sorted = allSkills
+          .slice()
+          .sort(
+            (left, right) =>
+              (SKILL_CATEGORY_RANK[categoryOf(left)] ?? 9) - (SKILL_CATEGORY_RANK[categoryOf(right)] ?? 9) ||
+              String(left.name).localeCompare(String(right.name)),
+          )
+        const counts = { all: sorted.length, official: 0, user: 0, project: 0, runtime: 0, other: 0 }
+        for (const skill of sorted) counts[categoryOf(skill)] = (counts[categoryOf(skill)] ?? 0) + 1
+        const categories = ['all', 'official', 'user', 'project']
+        // 「其他」只在本机真有运行时 / 未知来源技能时露脸；空分类不占一行位置。
+        if (counts.runtime > 0) categories.push('runtime')
+        if (counts.other > 0) categories.push('other')
+        const query = ui.query.trim().toLowerCase()
+        const filtered = sorted.filter((skill) => {
+          if (ui.filter !== 'all' && categoryOf(skill) !== ui.filter) return false
+          if (query === '') return true
+          return `${skill.name} ${skill.description}`.toLowerCase().includes(query)
+        })
+
+        /**
+         * 一行技能。
+         * @param {object} skill - 技能视图。
+         * @returns {object} React 元素。
+         */
+        function renderRow(skill) {
+          const category = categoryOf(skill)
+          const invocation = skillInvocationText(t, skill.invocation)
+          return h(
+            'button',
+            {
+              key: skill.name,
+              className: 'tsk-row',
+              type: 'button',
+              title: t('skillsDetail'),
+              onClick: () => void openDetail(skill),
+            },
+            h(
+              'span',
+              { className: 'tsk-row-head' },
+              h('span', { className: 'tsk-name' }, skill.name),
+              h(
+                'span',
+                { className: category === 'official' ? 'tsk-badge is-official' : 'tsk-badge' },
+                skillSourceText(t, skill.source),
+              ),
+              invocation === '' ? null : h('span', { className: 'tsk-badge' }, invocation),
+            ),
+            h('span', { className: 'tsk-desc' }, skill.description || t('skillsNoDescription')),
+            typeof skill.path === 'string' && skill.path !== '' ? h('span', { className: 'tsk-path' }, skill.path) : null,
+          )
+        }
+
+        /**
+         * 详情弹窗。
+         * @param {object} skill - 技能视图。
+         * @returns {object} React 元素。
+         */
+        function renderDetail(skill) {
+          return h(
+            'div',
+            { className: 'tsk-modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('skillsDetail') },
+            h(
+              'div',
+              { className: 'tsk-modal-head' },
+              h('h3', { className: 'tsk-modal-title' }, skill.name),
+              h('span', { className: 'tsk-badge' }, skillSourceText(t, skill.source)),
+            ),
+            h(
+              'div',
+              { className: 'tsk-modal-body' },
+              h('span', { className: 'tsk-desc' }, skill.description || t('skillsNoDescription')),
+              skill.whenToUse ? h('span', { className: 'tsk-hint' }, skill.whenToUse) : null,
+              h(
+                'div',
+                { className: 'tsk-hint' },
+                `${t('skillsPath')}：${skill.path || '—'}　·　${t('skillsInvocation')}：${skillInvocationText(t, skill.invocation) || '—'}`,
+              ),
+              detail.loading ? h('div', { className: 'tsk-empty' }, t('skillsDetailLoading')) : null,
+              detail.error !== '' ? h('div', { className: 'tsk-notice is-error' }, detail.error) : null,
+              !detail.loading && (detail.content !== '' || detail.error === '')
+                ? h('pre', { className: 'tsk-content' }, detail.content === '' ? t('skillsNoDescription') : detail.content)
+                : null,
+              detail.truncated === true ? h('div', { className: 'tsk-hint' }, t('skillsTruncated')) : null,
+              detail.error !== '' && !skill.userManaged
+                ? h('div', { className: 'tsk-hint' }, t('skillsHidden'))
+                : null,
+            ),
+            h(
+              'div',
+              { className: 'tsk-modal-foot' },
+              h('span', { className: 'tsk-hint' }, skill.userManaged ? t('skillsUserRoot').replace('{path}', data?.userRoot ?? '') : ''),
+              confirmDelete
+                ? [
+                    h('span', { className: 'tsk-hint', key: 'confirm' }, t('skillsDeleteConfirm').replace('{name}', skill.name)),
+                    h('button', { className: 'tsk-btn', type: 'button', key: 'cancel', onClick: () => setConfirmDelete(false) }, t('skillsCancel')),
+                    h(
+                      'button',
+                      {
+                        className: 'tsk-btn is-danger',
+                        type: 'button',
+                        key: 'delete',
+                        disabled: ui.busy === 'delete',
+                        onClick: () => void removeSkill(skill),
+                      },
+                      t('skillsDelete'),
+                    ),
+                  ]
+                : [
+                    skill.userManaged
+                      ? h('button', { className: 'tsk-btn is-danger', type: 'button', key: 'delete', onClick: () => setConfirmDelete(true) }, t('skillsDelete'))
+                      : null,
+                    h('button', { className: 'tsk-btn', type: 'button', key: 'close', onClick: closeModal }, t('skillsClose')),
+                  ],
+            ),
+          )
+        }
+
+        /**
+         * 上传弹窗。
+         * @returns {object} React 元素。
+         */
+        function renderUpload() {
+          const busy = ui.busy === 'install'
+          return h(
+            'div',
+            { className: 'tsk-modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('skillsUploadTitle') },
+            h('div', { className: 'tsk-modal-head' }, h('h3', { className: 'tsk-modal-title' }, t('skillsUploadTitle'))),
+            h(
+              'div',
+              { className: 'tsk-modal-body' },
+              h(
+                'div',
+                {
+                  className: upload.dragging ? 'tsk-drop is-over' : 'tsk-drop',
+                  onDragOver: (event) => {
+                    event.preventDefault()
+                    setUpload((previous) => ({ ...previous, dragging: true }))
+                  },
+                  onDragLeave: () => setUpload((previous) => ({ ...previous, dragging: false })),
+                  onDrop: (event) => void onDrop(event),
+                },
+                h('span', {}, upload.dragging ? t('skillsDropHere') : t('skillsUploadHint')),
+                h(
+                  'span',
+                  { className: 'tsk-toolbar' },
+                  h('button', { className: 'tsk-btn', type: 'button', onClick: () => folderInput.current?.click?.() }, t('skillsChooseFolder')),
+                  h('button', { className: 'tsk-btn', type: 'button', onClick: () => fileInput.current?.click?.() }, t('skillsChooseFiles')),
+                ),
+                h('input', { type: 'file', multiple: true, webkitdirectory: '', directory: '', ref: folderInput, style: { display: 'none' }, onChange: onPicked }),
+                h('input', { type: 'file', multiple: true, ref: fileInput, style: { display: 'none' }, onChange: onPicked }),
+              ),
+              upload.reading ? h('div', { className: 'tsk-empty' }, t('skillsReading')) : null,
+              upload.error !== '' ? h('div', { className: 'tsk-notice is-error' }, upload.error) : null,
+              upload.name !== ''
+                ? h('div', { className: 'tsk-hint' }, t('skillsDetected').replace('{name}', upload.name))
+                : upload.files.length > 0
+                  ? h('div', { className: 'tsk-hint' }, t('skillsNotDetected'))
+                  : null,
+              upload.description !== '' ? h('span', { className: 'tsk-desc' }, upload.description) : null,
+              upload.files.length === 0
+                ? h('div', { className: 'tsk-hint' }, t('skillsNoFiles'))
+                : h(
+                    'div',
+                    { className: 'tsk-files' },
+                    h('div', { className: 'tsk-hint' }, `${t('skillsFiles')}（${upload.files.length}）`),
+                    upload.files.map((file) =>
+                      h(
+                        'div',
+                        { className: 'tsk-file', key: file.path },
+                        h('span', { className: 'tsk-file-name' }, file.path),
+                        h('span', { className: 'tsk-file-size' }, formatBytes(file.size)),
+                      ),
+                    ),
+                  ),
+              data?.userRoot ? h('div', { className: 'tsk-hint' }, t('skillsUserRoot').replace('{path}', data.userRoot)) : null,
+            ),
+            h(
+              'div',
+              { className: 'tsk-modal-foot' },
+              conflict === upload.name && upload.name !== ''
+                ? h('span', { className: 'tsk-hint' }, t('skillsExists'))
+                : h('span', { className: 'tsk-hint' }),
+              h('button', { className: 'tsk-btn', type: 'button', onClick: closeModal }, t('skillsCancel')),
+              conflict === upload.name && upload.name !== ''
+                ? h(
+                    'button',
+                    { className: 'tsk-btn is-primary', type: 'button', disabled: busy, onClick: () => void installUpload(true) },
+                    busy ? t('skillsInstalling') : t('skillsOverwrite'),
+                  )
+                : h(
+                    'button',
+                    {
+                      className: 'tsk-btn is-primary',
+                      type: 'button',
+                      disabled: busy || upload.files.length === 0 || upload.reading,
+                      onClick: () => void installUpload(false),
+                    },
+                    busy ? t('skillsInstalling') : t('skillsInstall'),
+                  ),
+            ),
+          )
+        }
+
+        /**
+         * 新建技能弹窗。
+         * @returns {object} React 元素。
+         */
+        function renderCreate() {
+          const busy = ui.busy === 'install'
+          return h(
+            'div',
+            { className: 'tsk-modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('skillsNewTitle') },
+            h('div', { className: 'tsk-modal-head' }, h('h3', { className: 'tsk-modal-title' }, t('skillsNewTitle'))),
+            h(
+              'div',
+              { className: 'tsk-modal-body' },
+              h(
+                'label',
+                { className: 'tsk-field' },
+                h('span', { className: 'tsk-label' }, t('skillsName')),
+                h('input', {
+                  className: 'tsk-input',
+                  type: 'text',
+                  value: draft.name,
+                  placeholder: 'report-builder',
+                  onChange: (event) => setDraft((previous) => ({ ...previous, name: event.target.value })),
+                }),
+                h('span', { className: 'tsk-hint' }, t('skillsNameHint')),
+              ),
+              h(
+                'label',
+                { className: 'tsk-field' },
+                h('span', { className: 'tsk-label' }, t('skillsDescription')),
+                h('input', {
+                  className: 'tsk-input',
+                  type: 'text',
+                  value: draft.description,
+                  onChange: (event) => setDraft((previous) => ({ ...previous, description: event.target.value })),
+                }),
+                h('span', { className: 'tsk-hint' }, t('skillsDescriptionHint')),
+              ),
+              h(
+                'label',
+                { className: 'tsk-field' },
+                h('span', { className: 'tsk-label' }, t('skillsWhenToUse')),
+                h('input', {
+                  className: 'tsk-input',
+                  type: 'text',
+                  value: draft.whenToUse,
+                  onChange: (event) => setDraft((previous) => ({ ...previous, whenToUse: event.target.value })),
+                }),
+              ),
+              h(
+                'label',
+                { className: 'tsk-field' },
+                h('span', { className: 'tsk-label' }, t('skillsBody')),
+                h('textarea', {
+                  className: 'tsk-textarea',
+                  value: draft.body,
+                  onChange: (event) => setDraft((previous) => ({ ...previous, body: event.target.value })),
+                }),
+              ),
+              draft.error !== '' ? h('div', { className: 'tsk-notice is-error' }, draft.error) : null,
+              data?.userRoot ? h('div', { className: 'tsk-hint' }, t('skillsUserRoot').replace('{path}', data.userRoot)) : null,
+            ),
+            h(
+              'div',
+              { className: 'tsk-modal-foot' },
+              conflict === draft.name.trim() && draft.name.trim() !== ''
+                ? h('span', { className: 'tsk-hint' }, t('skillsExists'))
+                : h('span', { className: 'tsk-hint' }),
+              h('button', { className: 'tsk-btn', type: 'button', onClick: closeModal }, t('skillsCancel')),
+              conflict === draft.name.trim() && draft.name.trim() !== ''
+                ? h(
+                    'button',
+                    { className: 'tsk-btn is-primary', type: 'button', disabled: busy, onClick: () => void installDraft(true) },
+                    busy ? t('skillsInstalling') : t('skillsOverwrite'),
+                  )
+                : h(
+                    'button',
+                    { className: 'tsk-btn is-primary', type: 'button', disabled: busy, onClick: () => void installDraft(false) },
+                    busy ? t('skillsInstalling') : t('skillsInstall'),
+                  ),
+            ),
+          )
+        }
+
+        // 诊断（Host 的 debug: true）：技能页真的渲染出来时回传一份摘要。
+        // 没开 debug 的部署一个字节都不写；开了之后能回答两个问题——页面有没有拿到
+        // `t`（决定文案是中文还是键名）、真实分类计数是多少。
+        React.useEffect(() => {
+          if (data?.debug !== true) return
+          try {
+            void fetch(`${API_PREFIX}/note`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                at: new Date().toISOString(),
+                skillsSection: {
+                  rendered: true,
+                  hasT: typeof props?.t === 'function',
+                  total: allSkills.length,
+                  categories: counts,
+                  scopeKind: data?.scopeKind ?? null,
+                  userRoot: data?.userRoot ?? null,
+                },
+              }),
+            }).catch(() => {})
+          } catch {
+            /* 诊断失败无所谓 */
+          }
+        }, [data])
+
+        const modal = ui.modal
+        const overlay =
+          modal === null
+            ? null
+            : h(
+                'div',
+                {
+                  className: 'tsk-overlay',
+                  onClick: (event) => {
+                    if (event.target === event.currentTarget) closeModal()
+                  },
+                },
+                modal.kind === 'detail' ? renderDetail(modal.skill) : modal.kind === 'upload' ? renderUpload() : renderCreate(),
+              )
+        // 挂到 body：设置面板自己的滚动 / 变换不该把弹窗裁掉。拿不到 react-dom 就退回内联。
+        const renderedOverlay =
+          overlay !== null && typeof reactDom?.createPortal === 'function' && typeof document !== 'undefined'
+            ? reactDom.createPortal(overlay, document.body)
+            : overlay
+        return h(
+          'div',
+          { className: 'tsk-section' },
+          h('h2', { className: 'tsk-heading' }, t('skillsTitle')),
+          h('p', { className: 'tsk-intro' }, t('skillsIntro')),
+          h(
+            'div',
+            { className: 'tsk-toolbar' },
+            h('input', {
+              className: 'tsk-search',
+              type: 'search',
+              value: ui.query,
+              placeholder: t('skillsSearch'),
+              'aria-label': t('skillsSearch'),
+              onChange: (event) => setUi((previous) => ({ ...previous, query: event.target.value })),
+            }),
+            h('button', { className: 'tsk-btn', type: 'button', disabled: loading, onClick: () => void refresh() }, t('skillsRefresh')),
+            h('button', { className: 'tsk-btn is-primary', type: 'button', onClick: openUpload }, t('skillsUpload')),
+            h('button', { className: 'tsk-btn', type: 'button', onClick: openCreate }, t('skillsNew')),
+          ),
+          data?.userRoot ? h('div', { className: 'tsk-hint' }, t('skillsUserRoot').replace('{path}', data.userRoot)) : null,
+          error !== '' ? h('div', { className: 'tsk-notice is-error' }, `${t('skillsError')}：${error}`) : null,
+          ui.notice !== '' ? h('div', { className: 'tsk-notice' }, ui.notice) : null,
+          data?.complete === false ? h('div', { className: 'tsk-notice' }, t('skillsIncomplete')) : null,
+          h(
+            'div',
+            { className: 'tsk-tabs', role: 'tablist' },
+            categories.map((category) =>
+              h(
+                'button',
+                {
+                  key: category,
+                  className: 'tsk-tab',
+                  type: 'button',
+                  role: 'tab',
+                  'data-active': ui.filter === category ? 'true' : undefined,
+                  onClick: () => setUi((previous) => ({ ...previous, filter: category })),
+                },
+                t(SKILL_CATEGORY_LABEL[category] ?? 'skillsAll'),
+                h('span', { className: 'tsk-tab-count' }, String(counts[category] ?? 0)),
+              ),
+            ),
+          ),
+          loading && data === null ? h('div', { className: 'tsk-empty' }, t('skillsLoading')) : null,
+          data !== null && filtered.length === 0
+            ? h('div', { className: 'tsk-empty' }, allSkills.length === 0 ? t('skillsEmpty') : t('skillsFilterEmpty'))
+            : null,
+          filtered.length > 0 ? h('div', { className: 'tsk-list' }, filtered.map(renderRow)) : null,
+          renderedOverlay,
+        )
+      }
+    }
+
     return {
       inject: ['slots', 'locale'],
       apply(ctx) {
@@ -2367,7 +3759,7 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * 真正的接线：样式、词典、接管侧栏浏览区。
+     * 真正的接线：样式、词典、接管侧栏浏览区、注册「设置 → 技能」页。
      * @param {object} ctx - 客户端插件上下文。
      */
     function applyRegion(ctx) {
@@ -2395,6 +3787,23 @@ window.__ModuleLoader__.load({
           return h(Sidebar, props)
         }),
       )
+
+      // 设置 → 技能：settings.section 是「一页一个注册项」的列表槽，label 走词典 thunk，
+      // 排序插在「内置插件」(15) 与「Agent 预设」(20) 之间。老版本 DSH 没有这个槽时
+      // 只记一笔客户端失败，绝不让它把侧栏一起带走。
+      try {
+        const SkillsPage = createSkillsSection(ctx)
+        ctx.slots.inject('settings.section', () =>
+          ctx.slots.register(
+            { name: 'settings.section', id: 'skills', order: 18, label: () => t('skillsNav'), locale: NS },
+            function SkillsSettings(props) {
+              return h(SkillsPage, props)
+            },
+          ),
+        )
+      } catch (error) {
+        reportClientFailure('skills-section', error)
+      }
     }
   },
 })

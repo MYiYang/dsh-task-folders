@@ -260,6 +260,65 @@ reconcile 才会掉这条，这几秒里侧栏不该还挂着一条点不开的�
 - **跑着 / 等回话的会话例外**：不管排到第几名都露脸——折起来的那条正在等人回话，
   比折叠本身更要紧，按钮上的 N 也如实扣掉它们。
 
+## v0.8：设置里的「技能」页
+
+设置面板（`Ctrl/⌘ + ,`）的左侧多一项**技能**，夹在「内置插件」(15) 与「Agent 预设」(20)
+之间。这一页回答两个问题：**装了什么、从哪来**，以及**怎么再加一个 / 删掉一个**。
+
+### 它怎么知道有哪些技能
+
+数据完全来自 DSH 的 `ctx.skills` 注册表，不自己扫盘。这里有一个容易踩空的点：
+本机 profile 把 `dsh-skill-filesystem` / `dsh-tool-skill` 挂在 **Agent 预设**里
+（全局 `include:skill` 只有注册表本体）。只读全局层的话，页面会一个文件技能都看不到。
+所以 Host 按 DSH 自己 `SessionSkillCatalog` 的做法分两条路：
+
+- 当前会话还活着（客户端把 `uiSession` 的 `sessionId` 带上来）→
+  `agentPresets.serviceFor(agent, 'skills')` 拿这份**带预设层**的注册表；
+- 没有活会话（刚启动、设置页也能开）→ `agentPresets.acquireScope()` 借一份默认预设的
+  scope（`AsyncDisposable`，读完归还），再在全局注册表上带 `{ scope }` 读。
+
+界面上的分类是**来源**的投影：
+
+| 分类 | `source` | 说明 |
+| --- | --- | --- |
+| 官方内置 | `bundled` | 随 DSH 包发布的技能（Office、诊断脚本等） |
+| 我的技能 | `user-dsh` / `user-agents` / `custom` | `$DSH_HOME/skills`、`~/.agents/skills` 与自定义目录 |
+| 项目 | `project-dsh` / `project-agents` | 当前项目根下的 `.dsh/skills` 与 `.agents/skills` |
+| 运行时 / 其他 | `runtime` / 未知 | 运行时注册的（预设 / 插件注入） |
+
+### 安装：目录、SKILL.md，还是表单
+
+「上传技能」支持三种现实形态，Host 侧统一整理：
+
+1. **拖 / 选一个技能目录**：浏览器给的是 `my-skill/SKILL.md` + `my-skill/references/…`，
+   自动去掉公共根后按 bundle 安装；
+2. **选单个 `.md`**：按平铺技能安装（没有 SKILL.md 时把它当 SKILL.md）；
+3. **「新建技能」表单**：填 name / description / whenToUse / body，Host 拼出带
+   YAML frontmatter 的 SKILL.md。
+
+安装位置固定是 `<DSH_HOME>/skills/<name>/`（可用 `skillsRoot` 改），**先写临时目录再整目录
+`rename`**，中途失败不会留下半套技能；同名已存在时返回 409 `skill-exists`，界面弹「覆盖
+安装」二次确认，旧版本进 `$DSH_HOME/task-folders/skill-trash/`。限制：单文件 2MB、单次
+8MB、120 个文件；路径拒绝绝对路径 / 盘符 / `..` / NUL。
+
+### 删除：只动用户技能根
+
+详情弹窗里的「删除技能」只对 `<DSH_HOME>/skills` 里的条目出现（官方、项目、共享
+`~/.agents/skills` 都不给删）。Host 侧还有一道 403：路径必须在用户技能根内、不是
+`.system`；目录 bundle 搬的是整个技能目录，而不是单独一份 `SKILL.md`。默认移进
+`task-folders/skill-trash/`，`skillTrash: false` 才永久删除。
+
+**为什么只读用户根**：官方技能在 asar 里，项目技能属于仓库，共享目录属于别的 agent 配置；
+从设置页删它们不是「管理自己的技能」，是越界。
+
+### 详情与失败
+
+点一行打开详情，正文按名字现取（`skillDetail` → `ctx.skills.get`），列表只带摘要；来源、
+调用方式（模型 / 用户）、完整路径都写在弹窗里。注册表没挂载时页面显示一句人话
+（`skills-unavailable`），不会白屏。`debug: true` 时，技能页真正渲染出来后会往
+`$DSH_HOME/task-folders/note-*.json` 写一份摘要（`hasT` / 总数 / 分类 / `scopeKind`），
+排查「页面到底读到了哪一层」时先看它。
+
 ## 顺带一提：为什么「项目归档」不写进工作区登记
 
 `workspaceRegistry` 是 DSH 的持久登记，删一次就真的没了（虽然目录和日志还在）。
@@ -322,8 +381,13 @@ Host 侧改动默认要重启；改完想立刻生效又不想重启，可以用
     flushBatchSize: 64          # 攒到多少行立刻落盘
     recoverFromLog: true        # 重启后从日志恢复写入进度
     trash: true                 # 删除会话时移进回收站（false = 永久删除，不留退路）
+    skillsRoot: '~/.dsh/skills' # 设置页安装 / 删除的用户技能根（默认 $DSH_HOME/skills）
+    skillTrash: true            # 删除技能时移进 task-folders/skill-trash（false = 永久删除）
     debug: false                # true 时客户端会把它看到的第一屏摘要回传一次（排查用）
 ```
+
+`reveal` 是只给代码用的注入点（YAML 写不了函数）：`openFolder` 靠它去开文件夹，默认按平台
+`explorer.exe` / `open` / `xdg-open`。测试传一个只记路径的替身，断言返回值时就不会在开发机上弹窗。
 
 ## Host 接口
 
@@ -336,8 +400,12 @@ Host 侧改动默认要重启；改完想立刻生效又不想重启，可以用
 | `archiveProject` | `{workspaceId, archived}` | 归档 / 恢复一个项目，只写插件自己的 `projects.json` |
 | `openFolder` | `{day?, sessionId?}` | 在资源管理器里定位（护栏：只允许 `tasksRoot` 之内） |
 | `deleteSession` | `{sessionId}` | v0.6 删一条会话：三处磁盘痕迹进回收站 + 摘登记面；忙则 409，搬不动则 409 |
+| `skills` | `{cwd?, sessionId?}` | v0.8 技能目录：按来源投影 + `userManaged` 删除权限；`scopeKind` 说明读的是会话 / 预设 / 全局层 |
+| `skillDetail` | `{name, cwd?, sessionId?}` | 按名字加载完整 `SKILL.md` 正文（列表只带摘要） |
+| `installSkill` | `{files?, draft?, overwrite?}` | 安装目录 bundle / 单个 `.md` / 表单草稿；同名 409 `skill-exists`，`overwrite` 才替换（旧的进回收站） |
+| `deleteSkill` | `{name, path}` | 只允许用户技能根内的路径（403 兜底），整目录进 `task-folders/skill-trash/` |
 | `note` | 任意 JSON | 客户端异常/诊断回传，写 `$DSH_HOME/task-folders/note-*.json`（保留 20 个） |
-| `describe` | `{}` | 自检：根目录、任务工作区 id、任务区清单、能否建工作区、归档项目与按天归档、回收站位置 |
+| `describe` | `{}` | 自检：根目录、任务工作区 id、任务区清单、能否建工作区、归档项目与按天归档、回收站与技能根 |
 
 `state` 的应答形如：
 
@@ -361,16 +429,17 @@ Host 只负责「哪些会话属于任务、归在哪一天」。
 ## 测试
 
 ```sh
-node --test --test-isolation=none test/paths.test.js test/sessions.test.js test/scan.test.js test/archive.test.js test/session-files.test.js test/state.test.js test/project-archive.test.js test/route.test.js test/client.test.js
+node --test --test-isolation=none test/paths.test.js test/sessions.test.js test/scan.test.js test/archive.test.js test/session-files.test.js test/state.test.js test/project-archive.test.js test/skills.test.js test/route.test.js test/client.test.js
 ```
 
-93 个用例，覆盖：本地时区日期、目录名清洗、任务判定（cwd 在任务区 / 普通工作区 / 子代理 / 注册表缺席）、
+126 个用例，覆盖：本地时区日期、目录名清洗、任务判定（cwd 在任务区 / 普通工作区 / 子代理 / 注册表缺席）、
 按天归档扫描（倒序、坏 `session.json`、非日期目录不混入、新旧两种布局）、DSH 格式写入
 （多帧 zstd、seq 去重、崩溃后从日志恢复进度、大 payload）、删除落盘（按分组找日志、三处目标、
 回收站与 manifest、`trash:false` 直删、越界目录护栏、30 天清理、重复删除幂等、日志搬不动就整单放弃）、
 项目归档存储（落盘、幂等、坏 JSON、写失败回滚、垃圾 id）、侧栏状态装配（按天分组、归档会话单列一组、项目归档只打标记、
 任务区工作区过滤、归档兜底、冷会话）、路由全链路（403/405/404/400、自动归档、补接归档、
-只留一份任务登记、空壳会话归档、根上会话挂成员表、注册表晚就绪重试、打开文件夹护栏、
+只留一份任务登记、空壳会话归档、根上会话挂成员表、注册表晚就绪重试、打开文件夹的路径计算与注入替身
+（测试断言交给「打开」的路径，不真弹资源管理器）、
 删除会话的三处搬运与摘登记、忙则 409、坏 id 400、找不到的会话幂等）、
 客户端槽位契约（priority -1 遮盖、按天分隔、`connectWorkspace` 建任务会话、旧版 Host 提示、
 状态点、文件夹图标（DSH 图标集 + 拿不到时的自带 SVG 兜底）、令牌化样式表、窄栏降级、

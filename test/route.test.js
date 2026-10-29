@@ -116,6 +116,22 @@ function mount(options = {}) {
           }),
         }
       }
+      if (name === 'skills') {
+        if (options.skillsDisabled === true) return undefined
+        if (options.skillsRegistry !== undefined) return options.skillsRegistry
+        return {
+          snapshot: async (view) => {
+            options.lastSkillsView = view
+            return { skills: options.skills ?? [], complete: options.skillsComplete !== false }
+          },
+          get: async (skillName) => options.skillDefinitions?.[skillName],
+        }
+      }
+      if (name === 'agents' && options.liveAgents !== undefined) {
+        return { get: (id) => options.liveAgents[id] }
+      }
+      if (name === 'agentPresets' && options.presets !== undefined) return options.presets
+      if (name === 'workingDirectory') return { defaultDirectory: home }
       return undefined
     },
     on(event, listener) {
@@ -442,27 +458,52 @@ test('state 用 sessionQuery 列举冷会话，认不出工作区归属的也算
 })
 
 test('openFolder 定位任务根 / 某天 / 某个会话，越界被拒', async () => {
-  const harness = mount()
+  // 注入替身：只记下被交给「打开」的路径，绝不真去叫资源管理器。
+  const opened = []
+  const harness = mount({
+    config: {
+      reveal(target) {
+        opened.push(target)
+        return true
+      },
+    },
+  })
+  const expectedRoot = path.resolve(harness.tasksRoot)
   const root = (await post(harness, 'openFolder', {})).json.value
-  assert.equal(root.path, path.resolve(harness.tasksRoot))
+  assert.equal(root.path, expectedRoot)
   assert.equal(root.opened, true)
+  assert.deepEqual(opened, [expectedRoot], '交给「打开」的就是任务根')
 
   // 某一天 / 某个会话的文件夹（先在磁盘上造出来）
   const dayDir = path.join(harness.tasksRoot, '2026-10-26', 'session-abc')
   fs.mkdirSync(dayDir, { recursive: true })
   const day = (await post(harness, 'openFolder', { day: '2026-10-26' })).json.value
-  assert.equal(day.path, path.join(path.resolve(harness.tasksRoot), '2026-10-26'))
+  assert.equal(day.path, path.join(expectedRoot, '2026-10-26'))
   assert.equal(day.opened, true)
   const session = (await post(harness, 'openFolder', { day: '2026-10-26', sessionId: 'session-abc' })).json.value
   assert.equal(session.path, dayDir)
+  assert.deepEqual(
+    opened.slice(1),
+    [path.join(expectedRoot, '2026-10-26'), dayDir],
+    '某天的目录与会话目录各打开一次，且都是算出来的那个',
+  )
 
   const missing = await post(harness, 'openFolder', { day: '1999-01-01' })
   assert.equal(missing.status, 404)
+  assert.equal(opened.length, 3, '不存在的日期不许落到「打开」')
 
   // 不是日期就当没给：安全地落到任务根本身，而不是拿它拼路径
   const fallback = await post(harness, 'openFolder', { day: '..' })
   assert.equal(fallback.status, 200)
-  assert.equal(fallback.json.value.path, path.resolve(harness.tasksRoot))
+  assert.equal(fallback.json.value.path, expectedRoot)
+  assert.deepEqual(opened.slice(3), [expectedRoot], '回落也是打开任务根')
+})
+
+test('openFolder 的打开动作可以失败：注入替身返回 false 时回 500', async () => {
+  const harness = mount({ config: { reveal: () => false } })
+  const answer = await post(harness, 'openFolder', {})
+  assert.equal(answer.status, 500)
+  assert.equal(answer.json.error.code, 'open-failed')
 })
 
 test('describe 暴露任务根目录、任务工作区、能否建工作区与当前归档', async () => {
@@ -621,3 +662,356 @@ test(
     assert.equal(fs.existsSync(path.join(harness.home, 'task-folders', 'trash')), false, '不留空回收站条目')
   },
 )
+
+// ---- v0.8：设置页「技能」——列清单、读详情、上传/新建、删除 ----
+
+/**
+ * 拼一份 SKILL.md。
+ * @param {string} name - 技能名。
+ * @param {string} [description] - 描述。
+ * @param {string} [body] - 正文。
+ * @returns {string} 文件内容。
+ */
+function skillMarkdown(name, description = `${name} 的描述`, body = '# 正文') {
+  return `---\nname: ${name}\ndescription: ${description}\n---\n\n${body}\n`
+}
+
+test('skills：合并目录投影成分类视图，只有用户技能根里的条目可删', async () => {
+  const options = {}
+  const harness = mount(options)
+  const userRoot = path.join(harness.home, 'skills')
+  options.skills = [
+    {
+      name: 'office',
+      description: '官方 Office 技能',
+      source: 'bundled',
+      provider: 'dsh-office',
+      path: 'E:\app\assets\office\SKILL.md',
+      invocation: { modelInvocable: true, userInvocable: true },
+    },
+    {
+      name: 'mine',
+      description: '我自己写的',
+      whenToUse: '每次做报表时',
+      source: 'user-dsh',
+      provider: 'filesystem',
+      path: path.join(userRoot, 'mine', 'SKILL.md'),
+      invocation: { modelInvocable: true, userInvocable: false },
+    },
+    {
+      name: 'shared',
+      description: '共享 Agent 目录里的',
+      source: 'user-agents',
+      provider: 'filesystem',
+      path: path.join(harness.home, '..', '.agents', 'skills', 'shared', 'SKILL.md'),
+    },
+    {
+      name: 'project-one',
+      description: '项目里的',
+      source: 'project-dsh',
+      provider: 'filesystem',
+      path: path.join(harness.home, 'project', '.dsh', 'skills', 'project-one', 'SKILL.md'),
+    },
+  ]
+
+  const answer = await post(harness, 'skills', { cwd: harness.home })
+  assert.equal(answer.status, 200)
+  const value = answer.json.value
+  assert.equal(value.userRoot, userRoot)
+  assert.equal(value.complete, true)
+  assert.equal(value.cwd, path.resolve(harness.home))
+  assert.deepEqual(
+    value.skills.map((skill) => [skill.name, skill.category, skill.userManaged]),
+    [
+      ['office', 'official', false],
+      ['mine', 'user', true],
+      ['shared', 'user', false],
+      ['project-one', 'project', false],
+    ],
+  )
+  assert.equal(value.skills[1].whenToUse, '每次做报表时')
+  assert.equal(value.skills[1].invocation.userInvocable, false)
+})
+
+test('skillDetail：返回完整正文；缺名字 400、不存在 404', async () => {
+  const options = {}
+  const harness = mount(options)
+  options.skillDefinitions = {
+    mine: {
+      name: 'mine',
+      description: '我的技能',
+      source: 'user-dsh',
+      provider: 'filesystem',
+      path: path.join(harness.home, 'skills', 'mine', 'SKILL.md'),
+      invocation: { modelInvocable: true, userInvocable: true },
+      content: '# 完整正文\n\n照着做。',
+    },
+  }
+
+  const found = await post(harness, 'skillDetail', { name: 'mine' })
+  assert.equal(found.status, 200)
+  assert.equal(found.json.value.name, 'mine')
+  assert.equal(found.json.value.content, '# 完整正文\n\n照着做。')
+  assert.equal(found.json.value.userManaged, true)
+
+  assert.equal((await post(harness, 'skillDetail', {})).status, 400)
+  const missing = await post(harness, 'skillDetail', { name: 'nope' })
+  assert.equal(missing.status, 404)
+  assert.equal(missing.json.error.code, 'not-found')
+})
+
+test('skills：注册表缺席时 503 说人话，而不是 500 堆栈', async () => {
+  const harness = mount({ skillsDisabled: true })
+  const answer = await post(harness, 'skills', {})
+  assert.equal(answer.status, 503)
+  assert.equal(answer.json.error.code, 'skills-unavailable')
+  assert.match(answer.json.error.message, /dsh-skill/)
+})
+
+test('installSkill：表单草稿落盘、同名 409、overwrite 覆盖；目录 bundle 用 base64 上传', async () => {
+  const harness = mount()
+  const userRoot = path.join(harness.home, 'skills')
+
+  const created = await post(harness, 'installSkill', {
+    draft: { name: 'draft-skill', description: '表单技能', whenToUse: '想偷懒时', body: '# 步骤' },
+  })
+  assert.equal(created.status, 200)
+  assert.equal(created.json.value.name, 'draft-skill')
+  assert.equal(created.json.value.overwritten, false)
+  const installed = path.join(userRoot, 'draft-skill', 'SKILL.md')
+  assert.equal(fs.existsSync(installed), true)
+  const raw = fs.readFileSync(installed, 'utf8')
+  assert.match(raw, /^---\nname: draft-skill\n/)
+  assert.match(raw, /description: "表单技能"/)
+
+  const conflict = await post(harness, 'installSkill', {
+    draft: { name: 'draft-skill', description: '新描述' },
+  })
+  assert.equal(conflict.status, 409)
+  assert.equal(conflict.json.error.code, 'skill-exists')
+
+  const overwritten = await post(harness, 'installSkill', {
+    draft: { name: 'draft-skill', description: '新描述' },
+    overwrite: true,
+  })
+  assert.equal(overwritten.status, 200)
+  assert.equal(overwritten.json.value.overwritten, true)
+  assert.match(fs.readFileSync(installed, 'utf8'), /新描述/)
+
+  const upload = skillMarkdown('uploaded-skill', '上传的技能', '# 上传正文')
+  const uploaded = await post(harness, 'installSkill', {
+    files: [
+      { path: 'uploaded-skill/SKILL.md', data: Buffer.from(upload).toString('base64') },
+      { path: 'uploaded-skill/references/a.md', content: '# 参考' },
+    ],
+  })
+  assert.equal(uploaded.status, 200)
+  assert.equal(uploaded.json.value.files, 2)
+  assert.equal(fs.readFileSync(path.join(userRoot, 'uploaded-skill', 'references', 'a.md'), 'utf8'), '# 参考')
+
+  const missing = await post(harness, 'installSkill', {})
+  assert.equal(missing.status, 400)
+})
+
+test('installSkill 的请求体上限比其它操作宽：1.2MB 的技能能装，1.2MB 的 state 不行', async () => {
+  const harness = mount()
+  const body = 'x'.repeat(1_200_000)
+  const ok = await post(harness, 'installSkill', {
+    draft: { name: 'big-skill', description: '大技能', body },
+  })
+  assert.equal(ok.status, 200)
+  assert.equal(fs.statSync(path.join(harness.home, 'skills', 'big-skill', 'SKILL.md')).size > 1_200_000, true)
+
+  const tooLarge = await post(harness, 'state', undefined, { body: JSON.stringify({ fill: body }) })
+  assert.equal(tooLarge.status, 413)
+})
+
+test('deleteSkill：只删用户技能根里的（整目录进回收站），官方/系统/不存在分别 403/403/404', async () => {
+  const harness = mount()
+  const userRoot = path.join(harness.home, 'skills')
+  fs.mkdirSync(path.join(userRoot, 'mine', 'references'), { recursive: true })
+  fs.writeFileSync(path.join(userRoot, 'mine', 'SKILL.md'), skillMarkdown('mine'))
+  fs.writeFileSync(path.join(userRoot, 'mine', 'references', 'a.md'), '# ref')
+  fs.mkdirSync(path.join(userRoot, '.system', 'hidden'), { recursive: true })
+  fs.writeFileSync(path.join(userRoot, '.system', 'hidden', 'SKILL.md'), skillMarkdown('hidden'))
+
+  const removed = await post(harness, 'deleteSkill', {
+    name: 'mine',
+    path: path.join(userRoot, 'mine', 'SKILL.md'),
+  })
+  assert.equal(removed.status, 200)
+  assert.equal(removed.json.value.trashed, true)
+  assert.equal(fs.existsSync(path.join(userRoot, 'mine')), false)
+  assert.equal(fs.existsSync(path.join(removed.json.value.trashPath, 'references', 'a.md')), true)
+
+  const official = await post(harness, 'deleteSkill', {
+    name: 'office',
+    path: 'E:\app\assets\office\SKILL.md',
+  })
+  assert.equal(official.status, 403)
+  assert.equal(official.json.error.code, 'not-managed')
+
+  const system = await post(harness, 'deleteSkill', {
+    name: 'hidden',
+    path: path.join(userRoot, '.system', 'hidden', 'SKILL.md'),
+  })
+  assert.equal(system.status, 403)
+
+  const missing = await post(harness, 'deleteSkill', {
+    name: 'nope',
+    path: path.join(userRoot, 'nope', 'SKILL.md'),
+  })
+  assert.equal(missing.status, 404)
+})
+
+test('skills：当前会话活着就复用它预设层的注册表（全局层看不到文件技能）', async () => {
+  const agent = { id: 'session-live', ctx: {} }
+  let seen
+  const scopedSkills = {
+    snapshot: async (view) => {
+      seen = view
+      return {
+        skills: [
+          {
+            name: 'mine',
+            description: '预设层里的技能',
+            source: 'user-dsh',
+            provider: 'filesystem',
+            path: path.join('C:', 'Users', 'demo', '.dsh', 'skills', 'mine', 'SKILL.md'),
+          },
+        ],
+        complete: true,
+      }
+    },
+    get: async () => undefined,
+  }
+  const options = {
+    skillsRegistry: {
+      snapshot: async () => {
+        throw new Error('有活会话时不该退回全局注册表')
+      },
+      get: async () => undefined,
+    },
+    liveAgents: { 'session-live': agent },
+    presets: {
+      serviceFor(target, name) {
+        assert.equal(target, agent)
+        return name === 'skills' ? scopedSkills : undefined
+      },
+    },
+  }
+  const harness = mount(options)
+  const answer = await post(harness, 'skills', { sessionId: 'session-live', cwd: harness.home })
+
+  assert.equal(answer.status, 200)
+  assert.equal(answer.json.value.scopeKind, 'session')
+  assert.deepEqual(answer.json.value.skills.map((skill) => skill.name), ['mine'])
+  assert.deepEqual(seen, { cwd: path.resolve(harness.home), scope: agent })
+})
+
+test('skills：没有活会话就借默认预设的 scope，读完归还租约', async () => {
+  let disposed = 0
+  const key = { preset: 'standard' }
+  const lease = {
+    key,
+    [Symbol.asyncDispose]: async () => {
+      disposed += 1
+    },
+  }
+  const options = {
+    skills: [
+      {
+        name: 'shared',
+        description: '预设层里的',
+        source: 'user-agents',
+        provider: 'filesystem',
+        path: path.join('C:', 'Users', 'demo', '.agents', 'skills', 'shared', 'SKILL.md'),
+      },
+    ],
+    presets: { acquireScope: async () => lease },
+  }
+  const harness = mount(options)
+  const answer = await post(harness, 'skills', {})
+
+  assert.equal(answer.status, 200)
+  assert.equal(answer.json.value.scopeKind, 'preset')
+  assert.deepEqual(options.lastSkillsView, { cwd: path.resolve(harness.home), scope: key })
+  assert.equal(disposed, 1, 'scope 是借的，必须归还')
+})
+
+test('skills：预设置 API 抛错时退回全局注册表，不把设置页弄挂', async () => {
+  const options = {
+    skills: [
+      {
+        name: 'office',
+        description: '官方',
+        source: 'bundled',
+        provider: 'dsh-office',
+        path: 'E:\app\office\SKILL.md',
+      },
+    ],
+    presets: {
+      acquireScope: async () => {
+        throw new Error('preset unavailable')
+      },
+    },
+  }
+  const harness = mount(options)
+  const answer = await post(harness, 'skills', {})
+
+  assert.equal(answer.status, 200)
+  assert.equal(answer.json.value.scopeKind, 'global')
+  assert.deepEqual(answer.json.value.skills.map((skill) => skill.name), ['office'])
+})
+
+test('skillDetail：正文也走当前会话的预设层，找不到才 404', async () => {
+  const agent = { id: 'session-live', ctx: {} }
+  const scopedSkills = {
+    snapshot: async () => ({ skills: [], complete: true }),
+    get: async (name, view) => {
+      if (name !== 'mine') return undefined
+      assert.equal(view.scope, agent)
+      return {
+        name: 'mine',
+        description: '预设层的',
+        source: 'user-dsh',
+        provider: 'filesystem',
+        path: path.join('C:', 'Users', 'demo', '.dsh', 'skills', 'mine', 'SKILL.md'),
+        invocation: { modelInvocable: true, userInvocable: true },
+        content: '# 正文',
+      }
+    },
+  }
+  const options = {
+    liveAgents: { 'session-live': agent },
+    presets: { serviceFor: () => scopedSkills },
+  }
+  const harness = mount(options)
+
+  const found = await post(harness, 'skillDetail', { name: 'mine', sessionId: 'session-live' })
+  assert.equal(found.status, 200)
+  assert.equal(found.json.value.content, '# 正文')
+
+  options.skillDefinitions = {}
+  const missing = await post(harness, 'skillDetail', { name: 'missing', sessionId: 'session-live' })
+  assert.equal(missing.status, 404)
+})
+
+test('skillDetail：正文超过 256KB 截断，并明确标记 truncated', async () => {
+  const options = {}
+  const harness = mount(options)
+  options.skillDefinitions = {
+    huge: {
+      name: 'huge',
+      description: '很大的技能',
+      source: 'user-dsh',
+      provider: 'filesystem',
+      path: path.join(harness.home, 'skills', 'huge', 'SKILL.md'),
+      content: 'x'.repeat(300 * 1024),
+    },
+  }
+  const answer = await post(harness, 'skillDetail', { name: 'huge' })
+  assert.equal(answer.status, 200)
+  assert.equal(answer.json.value.truncated, true)
+  assert.equal(answer.json.value.content.length, 256 * 1024)
+})

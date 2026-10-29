@@ -369,12 +369,17 @@ function render(state, props, extra) {
   return renderFrom(client, state, props, extra)
 }
 
-test('只注册 sidebar.workspaces 一个槽，且用 priority -1 遮盖内置浏览器', () => {
+test('注册两个槽：sidebar.workspaces（priority -1 遮盖）与 settings.section「技能」页', () => {
   client.module.apply(client.ctx)
 
-  assert.equal(client.slots.length, 1, '只允许这一个槽位')
-  assert.equal(client.slots[0].definition.name, 'sidebar.workspaces')
-  assert.equal(client.slots[0].definition.priority, -1, 'single 槽必须用更低 priority 遮盖')
+  assert.equal(client.slots.length, 2, '侧栏浏览区 + 设置里的技能页')
+  const sidebar = client.slots.find((slot) => slot.definition.name === 'sidebar.workspaces')
+  assert.equal(sidebar.definition.priority, -1, 'single 槽必须用更低 priority 遮盖')
+  const settings = client.slots.find((slot) => slot.definition.name === 'settings.section')
+  assert.equal(settings.definition.id, 'skills')
+  assert.equal(settings.definition.order, 18, '插在内置插件 (15) 与 Agent 预设 (20) 之间')
+  assert.equal(settings.definition.label(), '技能')
+  assert.equal(typeof settings.Component, 'function')
 })
 
 test('注入 zh / en 词典与令牌化样式表（含状态点与按天分隔）', () => {
@@ -384,9 +389,17 @@ test('注入 zh / en 词典与令牌化样式表（含状态点与按天分隔�
     assert.equal(typeof entry.dict.project, 'string')
     assert.equal(typeof entry.dict.today, 'string')
     assert.equal(typeof entry.dict.newSessionIn, 'string')
+    assert.equal(typeof entry.dict.skillsNav, 'string')
+    assert.equal(typeof entry.dict.skillsIntro, 'string')
+    assert.equal(typeof entry.dict.skillsUpload, 'string')
   }
   const css = client.styles[0].textContent
   assert.match(css, /\.tsb-root/)
+  assert.match(css, /\.tsk-section/, '设置里的技能页有独立样式')
+  assert.match(css, /\.tsk-tab\[data-active='true'\]::after/, '分类页签用内置设置页同款下划线')
+  assert.match(css, /\.tsk-overlay \{[^}]*position: fixed/, '上传 / 详情用浮层，不挤设置页布局')
+  assert.match(css, /\.tsk-btn\.is-primary \{[^}]*--dsw-alias-label-primary-foreground/, '主按钮前景走反色令牌，深色主题下白字不会被近白底吞掉')
+  assert.match(css, /\.tsk-drop\.is-over/, '拖放悬停有反馈')
   assert.match(css, /var\(--dsw-alias-label-primary\)/, '颜色必须走 DSH 令牌')
   assert.match(css, /\.tsb-day/, '按天分隔的小标题')
   assert.match(css, /\.tsb-folder\b/, '工作区行的文件夹图标')
@@ -1009,3 +1022,207 @@ test('弹出菜单按视口坐标 fixed 定位（不再被侧栏区域的底边�
   assert.equal(menu.props.style.right, 'auto', 'fixed 时要把 CSS 里的 right: 4px 关掉')
 })
 
+
+// ---- v0.8：设置 → 技能 ----
+
+/**
+ * 用一份 useState 初值渲染「设置 → 技能」页。
+ * hook 顺序：0 data / 1 loading / 2 error / 3 ui / 4 detail / 5 upload / 6 draft / 7 conflict / 8 confirmDelete
+ * @param {Record<number, unknown>} [fixture] - 覆盖初始状态。
+ * @returns {object} 假元素树。
+ */
+function renderSettings(fixture = {}) {
+  const slot = client.slots.find((entry) => entry.definition.name === 'settings.section')
+  assert.ok(slot, '应该注册了 settings.section')
+  const dict = client.dictionaries.find((entry) => entry.id === 'zh')?.dict ?? {}
+  const t = (key) => dict[key] ?? key
+  const React = client.react
+  const originalUseState = React.useState
+  let hookIndex = 0
+  React.useState = (initial) => {
+    const index = hookIndex
+    hookIndex += 1
+    const value = index in fixture ? fixture[index] : typeof initial === 'function' ? initial() : initial
+    return [value, () => {}]
+  }
+  try {
+    let tree = slot.Component({ t })
+    let guard = 0
+    while (tree !== null && typeof tree === 'object' && typeof tree.type === 'function' && guard < 8) {
+      tree = tree.type(tree.props)
+      guard += 1
+    }
+    return tree
+  } finally {
+    React.useState = originalUseState
+  }
+}
+
+/** 设置页首屏数据：官方 / 用户目录 / 共享目录 / 项目各一条。 */
+const SKILLS_DATA = {
+  complete: true,
+  userRoot: 'C:/Users/17915/.dsh/skills',
+  cwd: 'F:/work',
+  skills: [
+    {
+      name: 'office',
+      description: '官方 Office 技能',
+      source: 'bundled',
+      category: 'official',
+      path: 'E:/app/office/SKILL.md',
+      invocation: { modelInvocable: true, userInvocable: true },
+      userManaged: false,
+    },
+    {
+      name: 'mine',
+      description: '我自己写的',
+      whenToUse: '做报表时',
+      source: 'user-dsh',
+      category: 'user',
+      path: 'C:/Users/17915/.dsh/skills/mine/SKILL.md',
+      invocation: { modelInvocable: true, userInvocable: false },
+      userManaged: true,
+    },
+    {
+      name: 'shared',
+      description: '共享 Agent 目录里的',
+      source: 'user-agents',
+      category: 'user',
+      path: 'C:/Users/17915/.agents/skills/shared/SKILL.md',
+      invocation: { modelInvocable: true, userInvocable: true },
+      userManaged: false,
+    },
+    {
+      name: 'project-one',
+      description: '项目里的',
+      source: 'project-dsh',
+      category: 'project',
+      path: 'F:/work/.dsh/skills/project-one/SKILL.md',
+      invocation: { modelInvocable: true, userInvocable: true },
+      userManaged: false,
+    },
+  ],
+}
+
+test('技能页：按来源分类，官方 / 我的 / 项目分组并显示计数与安装位置', () => {
+  const tree = renderSettings({ 0: SKILLS_DATA, 1: false })
+  const text = collectText(tree).join(' ')
+
+  assert.match(text, /^技能/)
+  assert.match(text, /官方随包提供/)
+  assert.match(text, /C:\/Users\/17915\/\.dsh\/skills/, '显示安装位置')
+  for (const name of ['office', 'mine', 'shared', 'project-one']) assert.match(text, new RegExp(name))
+  assert.match(text, /仅模型/, 'mine 只对模型可调（user-invocable: false）')
+
+  const tabs = collectByType(tree, 'button').filter((node) => node.props.className === 'tsk-tab')
+  assert.deepEqual(
+    tabs.map((tab) => collectText(tab).join('')),
+    ['全部4', '官方内置1', '我的技能2', '项目1'],
+  )
+  assert.equal(tabs[0].props['data-active'], 'true')
+  assert.equal(tabs[1].props['data-active'], undefined)
+
+  const rows = collectByType(tree, 'button').filter((node) => node.props.className === 'tsk-row')
+  assert.deepEqual(
+    rows.map((row) => collectText(row).join(' ').split(' ')[0]),
+    ['office', 'mine', 'shared', 'project-one'],
+    '官方排最前，用户其次，项目最后',
+  )
+  const badges = collectByType(tree, 'span')
+    .filter((node) => typeof node.props.className === 'string' && node.props.className.startsWith('tsk-badge'))
+    .map((node) => collectText(node).join(''))
+  for (const badge of ['官方内置', '模型 + 用户', 'DSH 用户目录', '仅模型', '共享 Agent 目录', '项目 .dsh']) {
+    assert.ok(badges.includes(badge), `缺少角标：${badge}`)
+  }
+})
+
+test('技能页：加载 / 空 / 读取失败三种状态都有一句人话', () => {
+  assert.match(collectText(renderSettings({ 0: null, 1: true })).join(' '), /正在读取技能/)
+  assert.match(
+    collectText(renderSettings({ 0: { skills: [], userRoot: 'x', complete: true }, 1: false })).join(' '),
+    /还没有技能/,
+  )
+  assert.match(collectText(renderSettings({ 0: null, 1: false, 2: 'boom' })).join(' '), /技能读取失败：boom/)
+  assert.match(
+    collectText(renderSettings({ 0: { ...SKILLS_DATA, complete: false }, 1: false })).join(' '),
+    /没有读全/,
+  )
+})
+
+test('技能详情：正文按需读取；只有用户技能根里的才露出删除按钮', () => {
+  const mine = SKILLS_DATA.skills[1]
+  const detailTree = renderSettings({
+    0: SKILLS_DATA,
+    1: false,
+    3: { query: '', filter: 'all', modal: { kind: 'detail', skill: mine }, notice: '', busy: '' },
+    4: { loading: false, content: '# 完整正文\n\n照着做。', error: '' },
+  })
+  const text = collectText(detailTree).join(' ')
+  const dialog = collectByType(detailTree, 'div').find((node) => node.props.role === 'dialog')
+  assert.equal(dialog.props['aria-label'], '技能详情')
+  assert.match(text, /# 完整正文/)
+  assert.match(text, /删除技能/)
+  assert.match(text, /做报表时/)
+
+  const official = SKILLS_DATA.skills[0]
+  const officialTree = renderSettings({
+    0: SKILLS_DATA,
+    1: false,
+    3: { query: '', filter: 'all', modal: { kind: 'detail', skill: official }, notice: '', busy: '' },
+    4: { loading: false, content: '官方正文', error: '' },
+  })
+  const officialButtons = collectByType(officialTree, 'button')
+    .filter((node) => node.props.className === 'tsk-btn')
+    .map((node) => collectText(node).join(''))
+  assert.equal(officialButtons.includes('删除技能'), false, '官方技能只读')
+})
+
+test('技能上传弹窗：目录输入、文件清单、识别结果与安装按钮', () => {
+  const tree = renderSettings({
+    0: SKILLS_DATA,
+    1: false,
+    3: { query: '', filter: 'all', modal: { kind: 'upload' }, notice: '', busy: '' },
+    5: {
+      files: [
+        { path: 'mine/SKILL.md', size: 2048 },
+        { path: 'mine/references/a.md', size: 512 },
+      ],
+      name: 'mine',
+      description: '我自己写的',
+      reading: false,
+      error: '',
+      hasSkillMd: true,
+      dragging: false,
+    },
+  })
+  const text = collectText(tree).join(' ')
+  assert.match(text, /上传技能/)
+  assert.match(text, /识别到技能：mine/)
+  assert.match(text, /mine\/SKILL\.md/)
+  assert.match(text, /2 KB/)
+  assert.match(text, /安装/)
+
+  const inputs = collectByType(tree, 'input')
+  assert.ok(inputs.some((input) => input.props.type === 'file' && input.props.webkitdirectory === ''), '有目录选择输入')
+  assert.ok(inputs.some((input) => input.props.type === 'file' && input.props.webkitdirectory === undefined), '也有单文件输入')
+})
+
+test('新建技能弹窗：四个字段都受控，点安装发 installSkill', () => {
+  const tree = renderSettings({
+    0: SKILLS_DATA,
+    1: false,
+    3: { query: '', filter: 'all', modal: { kind: 'create' }, notice: '', busy: '' },
+    6: { name: 'report-builder', description: '做报表', whenToUse: '每月初', body: '# 步骤', error: '' },
+  })
+  const text = collectText(tree).join(' ')
+  assert.match(text, /新建技能/)
+  assert.match(text, /report-builder/)
+
+  const inputs = collectByType(tree, 'input').filter((input) => input.props.className === 'tsk-input')
+  assert.deepEqual(
+    inputs.map((input) => input.props.value),
+    ['report-builder', '做报表', '每月初'],
+  )
+  const textarea = collectByType(tree, 'textarea').find((node) => node.props.className === 'tsk-textarea')
+  assert.equal(textarea.props.value, '# 步骤')
+})
