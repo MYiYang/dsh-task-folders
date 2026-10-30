@@ -27,6 +27,9 @@
 3. **样式跟 DSH 自己的侧栏走**：12px 正文 / 26-32px 行高 / 6px 圆角，
    颜色只用 `--dsw-alias-*` 令牌，状态点与内置的 StateDot 同一套语义。
 
+侧栏之外，v0.9 还管对话框里的一段：**回合被停止、或者跑失败了，回合尾部出现「编辑重发」**——
+把这一轮你发的那句话拣回编辑框，改完直接再来一轮（见下文「v0.9：回合停止 / 失败之后的『编辑重发』」）。
+
 缩进只走一条台阶（下面是含 `.tsb-root` 6px 内边距的**绝对左偏移**）：
 
 | 层 | 左偏移 | 内容 |
@@ -319,6 +322,62 @@ reconcile 才会掉这条，这几秒里侧栏不该还挂着一条点不开的�
 `$DSH_HOME/task-folders/note-*.json` 写一份摘要（`hasT` / 总数 / 分类 / `scopeKind`），
 排查「页面到底读到了哪一层」时先看它。
 
+## v0.9：回合停止 / 失败之后的「编辑重发」
+
+DSH 自己只给「复制」和「分支」：一轮被停下（点了停止，或 DSH 进程中途退出）或者跑失败之后，
+想「把刚才那句话改一个字再来一次」，只能往上翻、复制、粘回输入框、再改、再发。
+
+v0.9 把这一步收成一次点击：**回合尾部一个「编辑重发」**，点开就是这一轮你发的那句话，改完按「重发」。
+
+```
+本轮运行失败  RATE_LIMIT
+[✎ 编辑重发]                              ← 只在「停止 / 失败」的最后一轮出现
+   ┌──────────────────────────────────────┐
+   │ 帮我把登录拆成两步                      │  ← 预填这一轮你发的原文，可改
+   │ 重发会用这段文字再开一轮；原来那条消息…    │
+   │ Ctrl/⌘ + Enter 直接重发      [取消][重发] │
+   └──────────────────────────────────────┘
+```
+
+**它挂在哪儿**：`conversation.chat.turnTail`（`@deepseek-ai/dsh-client-ui-chat` 声明的列表槽）。
+
+- 不用 `conversation.chat.assistant-actions`：那个槽挂在「**已完结的 assistant 消息**」上，
+  而停止时往往连一条回复都没有（`turn-tail` 的 `closing` 为 null），那一轮就完全没有入口。
+  `turnTail` 是每个回合结束都渲染、位置在动作行之前，两种情况都在。
+- `order: 10`：排在自带的产物卡（deliverables / plan，都是 0）之后、定时任务卡（20）之前。
+
+**怎么判断「停止 / 失败」**：读回合记录里的 `turn/end` 事件（`turn.end.data.reason.kind`）。
+DSH 的 `TurnEndReasonMap` 里只有这三种算：
+
+| `reason.kind` | 什么时候 | 入口 |
+| --- | --- | --- |
+| `aborted` | 你按了停止（Esc Esc 走的是同一条取消） | ✅ 标成 stopped |
+| `error` | 本轮报错（含额度、鉴权失败） | ✅ 标成 failed |
+| `interrupted` | DSH 进程中途退出，重启后收尾 | ✅ 标成 failed |
+| `completed` / `max-tokens` / `forked` / `blocked` | 跑完 / 撞输出上限 / 被分支 / 被拦 | ❌ |
+
+**几个刻意的取舍**：
+
+1. **只认最新一轮**：DSH 的会话只往后追加（没有回滚），对着三天前的一条消息「重发」，
+   结果会挂到今天的尾巴上，谁看都莫名其妙。所以只有 `timeline.turnOrder` 里的最后一个回合给入口。
+2. **只拣人工发的 `user` 消息**：`steering`（跑着补的一句）和 `turn-trigger` / `context`
+   （通知唤起、注入的上下文）都不是「你发的那句话」，跳过。
+3. **重发走会话自己的输入面板**：`inputActions.setDraft(text)` → `inputActions.submit()`，
+   和手打一条消息完全同一条路（附件、斜杠命令、权限、队列都按当前会话的规矩来）；
+   插件**不拼请求、不写会话日志**。
+4. **只带文字**：历史消息里的图片 / 文件是草稿区的东西（浏览器的 File 对象、上传回执），
+   从记录里捞不回来；原消息带附件时，编辑框里会直说「n 个附件不会一起重发」。
+5. **输入框里已有内容会先提醒**：重发会替换掉草稿（`useInput` 读的 `draft`），
+   提醒一句再动手，不悄悄吞掉你没发出去的字。
+6. **输入框正忙着（`phase` 是 adjudicating / submitting）时重发按不动**：先提醒一句，
+   等上一条落定——不然 `submit` 会被提交机吞掉，点了像没点。
+7. **子代理会话不给**：它们挂在父会话底下、输入面板是只读的（`useSession` 的
+   `subagent` 非空就跳过），跟侧栏「子代理不归档」是同一条线。
+
+**老版本 DSH**：没有这个槽时 `slots.inject` 等不到声明，什么也不注册；
+拿不到 `@deepseek-ai/dsh-client-ui-primitives` 时图标退回自带的同形 SVG（铅笔 / 上行箭头），
+和侧栏的文件夹、折叠箭头是同一套兜底。
+
 ## 顺带一提：为什么「项目归档」不写进工作区登记
 
 `workspaceRegistry` 是 DSH 的持久登记，删一次就真的没了（虽然目录和日志还在）。
@@ -429,10 +488,10 @@ Host 只负责「哪些会话属于任务、归在哪一天」。
 ## 测试
 
 ```sh
-node --test --test-isolation=none test/paths.test.js test/sessions.test.js test/scan.test.js test/archive.test.js test/session-files.test.js test/state.test.js test/project-archive.test.js test/skills.test.js test/route.test.js test/client.test.js
+node --test --test-isolation=none test/paths.test.js test/sessions.test.js test/scan.test.js test/archive.test.js test/session-files.test.js test/state.test.js test/project-archive.test.js test/skills.test.js test/route.test.js test/client.test.js test/edit-resend.test.js
 ```
 
-126 个用例，覆盖：本地时区日期、目录名清洗、任务判定（cwd 在任务区 / 普通工作区 / 子代理 / 注册表缺席）、
+142 个用例，覆盖：本地时区日期、目录名清洗、任务判定（cwd 在任务区 / 普通工作区 / 子代理 / 注册表缺席）、
 按天归档扫描（倒序、坏 `session.json`、非日期目录不混入、新旧两种布局）、DSH 格式写入
 （多帧 zstd、seq 去重、崩溃后从日志恢复进度、大 payload）、删除落盘（按分组找日志、三处目标、
 回收站与 manifest、`trash:false` 直删、越界目录护栏、30 天清理、重复删除幂等、日志搬不动就整单放弃）、
@@ -444,7 +503,11 @@ node --test --test-isolation=none test/paths.test.js test/sessions.test.js test/
 客户端槽位契约（priority -1 遮盖、按天分隔、`connectWorkspace` 建任务会话、旧版 Host 提示、
 状态点、文件夹图标（DSH 图标集 + 拿不到时的自带 SVG 兜底）、令牌化样式表、窄栏降级、
 搜索入口与本地/全文结果、归档过滤三档、会话行「…」归档/取消归档、删除的二次确认与 deleteSession、
-项目归档与恢复、归档徽标）。
+项目归档与恢复、归档徽标）、
+对话流「编辑重发」（停止 / 失败 / 进程中断三种才给入口、跑完与撞上限不给、只认最新一轮、
+只认人工 user 消息、点开预填原文、重发走 setDraft → submit、空白不可发、输入面板缺席给提示、
+草稿会被替换的提醒、附件不重发、输入框忙时禁用、Esc 收起与 Ctrl/⌘+Enter 重发、子代理会话不给、
+图标集缺席时退回自带 SVG）。
 
 ## Host 改动与热重载
 

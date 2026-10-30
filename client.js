@@ -214,6 +214,67 @@ window.__ModuleLoader__.load({
       )
     }
 
+    /**
+     * 铅笔（「编辑重发」的入口）：优先用 DSH 图标集的 `IconEditOutlineRegular`。
+     *
+     * 兜底照原图标画：一个右上角开口的方框（实心路径）+ 一根描边的笔杆，
+     * 线宽 1、viewBox 16——和内置对话流的动作图标同一个视觉重量。
+     * @param {number} [size] - 边长，默认 14（对话流里的动作图标就是 14-15）。
+     * @returns {object} React 元素。
+     */
+    function editIcon(size = 14) {
+      const Icon = primitives?.IconEditOutlineRegular
+      if (Icon !== undefined && Icon !== null) return h(Icon, { size })
+      return h(
+        'svg',
+        {
+          viewBox: '0 0 16 16',
+          width: size,
+          height: size,
+          fill: 'none',
+          stroke: 'currentColor',
+          strokeWidth: 1,
+          'aria-hidden': 'true',
+          focusable: 'false',
+        },
+        h('path', {
+          d: 'M8.85596 2.69971H4.19971C3.37141 2.69971 2.69992 3.37146 2.69971 4.19971V11.8003C2.69992 12.6285 3.37141 13.3003 4.19971 13.3003H11.8003C12.6283 13.2999 13.3001 12.6283 13.3003 11.8003V7.89893H14.3003V11.8003C14.3001 13.1806 13.1806 14.2999 11.8003 14.3003H4.19971C2.81913 14.3003 1.69992 13.1808 1.69971 11.8003V4.19971C1.69992 2.81918 2.81913 1.69971 4.19971 1.69971H8.85596V2.69971Z',
+          fill: 'currentColor',
+          stroke: 'none',
+        }),
+        h('path', { d: 'M7.7849 8.23878L13.888 2.13574' }),
+      )
+    }
+
+    /**
+     * 上行箭头（「重发」按钮）：优先用 DSH 图标集的 `IconSendOutlineRegular`。
+     * @param {number} [size] - 边长，默认 13（按钮里的小图标）。
+     * @returns {object} React 元素。
+     */
+    function sendIcon(size = 13) {
+      const Icon = primitives?.IconSendOutlineRegular
+      if (Icon !== undefined && Icon !== null) return h(Icon, { size })
+      return h(
+        'svg',
+        {
+          viewBox: '0 0 16 16',
+          width: size,
+          height: size,
+          fill: 'none',
+          stroke: 'currentColor',
+          strokeWidth: 1,
+          'aria-hidden': 'true',
+          focusable: 'false',
+        },
+        h('path', {
+          d: 'M6.97211 1.94476C7.55785 1.35914 8.50767 1.35919 9.09343 1.94476L13.921 6.77228L13.2138 7.47939L8.38632 2.65187C8.19108 2.45682 7.87443 2.45677 7.67922 2.65187L2.74397 7.58711L2.03687 6.88L6.97211 1.94476Z',
+          fill: 'currentColor',
+          stroke: 'none',
+        }),
+        h('path', { d: 'M7.97571 14.5732L8.02421 2.34139' }),
+      )
+    }
+
     /** 词典命名空间。 */
     const NS = 'taskFolders'    /** 区域 id（样式与排查用）。 */
     const REGION_ID = 'task-folders'
@@ -362,6 +423,18 @@ window.__ModuleLoader__.load({
       skillsNoDescription: '（没有描述）',
       skillsReading: '正在读取文件…',
       skillsHidden: '系统目录里的技能不在这里管理。',
+      // —— v0.9：回合停止 / 失败之后，把上一条消息拣回来改一改再发一次 ——
+      editResend: '编辑重发',
+      editResendTitle: '编辑上一条消息并重新发送',
+      editResendPlaceholder: '编辑这条消息',
+      editResendNote: '重发会用这段文字再开一轮；原来那条消息和这次的结果都留在记录里。',
+      editResendAttachments: '原消息带的 {n} 个附件不会一起重发。',
+      editResendOverwrite: '输入框里还有没发出去的内容，重发会替换掉它。',
+      editResendShortcut: 'Ctrl/⌘ + Enter 直接重发',
+      editResendSend: '重发',
+      editResendBusy: '输入框正忙着发上一条，等它落定再重发。',
+      editResendUnavailable: '当前会话的输入框不可用，先把文字复制出来手动发送。',
+      editResendFailed: '重发失败',
     }
 
     const en = {
@@ -490,6 +563,18 @@ window.__ModuleLoader__.load({
       skillsNoDescription: '(no description)',
       skillsReading: 'Reading files…',
       skillsHidden: 'Skills in the system folder are not managed here.',
+      // —— v0.9: edit and resend after a stopped or failed Turn ——
+      editResend: 'Edit & resend',
+      editResendTitle: 'Edit the previous message and send it again',
+      editResendPlaceholder: 'Edit this message',
+      editResendNote: 'Resending starts a new Turn with this text; the original message and this Turn stay in the log.',
+      editResendAttachments: 'The {n} attachment(s) on the original message are not resent.',
+      editResendOverwrite: 'The composer still holds unsent text; resending replaces it.',
+      editResendShortcut: 'Ctrl/⌘ + Enter sends',
+      editResendSend: 'Resend',
+      editResendBusy: 'The composer is still sending the previous message; resend once it settles.',
+      editResendUnavailable: 'The composer is unavailable in this session — copy the text and send it by hand.',
+      editResendFailed: 'Resend failed',
     }
 
     /**
@@ -1079,6 +1164,84 @@ window.__ModuleLoader__.load({
    font-size: 12px;
    line-height: 18px;
  }
+ /* —— v0.9：回合停止 / 失败后的「编辑重发」 ——
+    这块长在对话流里（conversation.chat.turnTail），不是侧栏：字号跟着对话正文走
+    （正文 14 / 次要信息 13），别拿侧栏那套 12px 顶上来。 */
+ .tsr-row {
+   display: flex;
+   align-items: center;
+   gap: 6px;
+   /* 收起状态只占一行按钮的高度，不额外撑开对话流 */
+   margin-top: -6px;
+ }
+ .tsr-trigger {
+   display: inline-flex;
+   align-items: center;
+   gap: 5px;
+   height: 26px;
+   padding: 0 8px 0 6px;
+   border: none;
+   border-radius: var(--dsw-radius-sm);
+   background: transparent;
+   color: var(--dsw-alias-label-tertiary);
+   font: inherit;
+   font-size: 13px;
+   line-height: 20px;
+   cursor: pointer;
+ }
+ .tsr-trigger:hover {
+   background: var(--dsw-alias-interactive-bg-hover);
+   color: var(--dsw-alias-label-secondary);
+ }
+ .tsr-trigger-label { min-width: 0; }
+ .tsr-root {
+   display: flex;
+   flex-direction: column;
+   gap: 6px;
+   box-sizing: border-box;
+   max-width: 100%;
+   margin-top: 2px;
+   padding: 10px 12px;
+   border: .5px solid var(--dsw-alias-border-l2);
+   border-radius: 8px;
+   background: var(--dsw-alias-bg-layer-1);
+ }
+ .tsr-input {
+   box-sizing: border-box;
+   width: 100%;
+   min-height: 72px;
+   max-height: 360px;
+   padding: 7px 9px;
+   border: .5px solid var(--dsw-alias-border-l2);
+   border-radius: var(--dsw-radius-sm);
+   background: var(--dsw-alias-bg-base);
+   color: var(--dsw-alias-label-primary);
+   font: inherit;
+   font-size: var(--dsh-content-font-size, 14px);
+   line-height: calc(22px + var(--dsh-content-font-delta, 0px));
+   resize: vertical;
+ }
+ .tsr-input::placeholder { color: var(--dsw-alias-label-tertiary); }
+ .tsr-input:focus-visible,
+ .tsr-trigger:focus-visible {
+   outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color);
+   outline-offset: 1px;
+ }
+ .tsr-note { margin: 0; color: var(--dsw-alias-label-tertiary); font-size: 13px; line-height: 19px; }
+ .tsr-note.is-warn { color: var(--dsw-alias-state-warn-primary); }
+ .tsr-note.is-error { color: var(--dsw-alias-state-error-primary); }
+ .tsr-actions { display: flex; align-items: center; gap: 8px; }
+ .tsr-shortcut {
+   flex: 1 1 auto;
+   min-width: 0;
+   overflow: hidden;
+   color: var(--dsw-alias-label-caption);
+   font-size: 12px;
+   line-height: 18px;
+   text-overflow: ellipsis;
+   white-space: nowrap;
+ }
+ .tsr-actions .tsk-btn { display: inline-flex; align-items: center; gap: 4px; }
  @media (max-width: 640px) {
    .tsk-toolbar { flex-wrap: wrap; }
    .tsk-search { flex-basis: 100%; }
@@ -3746,6 +3909,286 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /**
+     * 一段消息内容里的纯文本（用户消息的 `content` 是 wire 块数组：text / image / file / …）。
+     * @param {unknown} content - 消息内容块。
+     * @returns {string} 纯文本；没有文字块就是空串。
+     */
+    function contentText(content) {
+      if (!Array.isArray(content)) return ''
+      const parts = []
+      for (const block of content) {
+        if (block !== null && typeof block === 'object' && block.type === 'text' && typeof block.text === 'string') {
+          parts.push(block.text)
+        }
+      }
+      return parts.join('').trim()
+    }
+
+    /**
+     * 一段消息内容里带了几张图 / 几个文件。
+     * 重发只带文字：附件是草稿区的东西（浏览器里的 File 对象、上传回执），
+     * 从历史消息里捞不回来，所以这里只用来提醒，不参与重发。
+     * @param {unknown} content - 消息内容块。
+     * @returns {number} 附件个数。
+     */
+    function contentAttachmentCount(content) {
+      if (!Array.isArray(content)) return 0
+      let count = 0
+      for (const block of content) {
+        if (block === null || typeof block !== 'object') continue
+        if (block.type === 'image' || block.type === 'file') count += 1
+      }
+      return count
+    }
+
+    /**
+     * 一个回合里**人工**发出的最后一条消息的内容。
+     *
+     * `conversation.chat.node` 里的用户消息有三种：`user`（你打的那句话）、
+     * `steering`（跑着的时候补的一句）、`turn-trigger` / `context`（通知唤起、注入的上下文）。
+     * 「编辑重发」要的是第一种——后两类都不是「上一条消息」。
+     * @param {object} snapshot - Chat 快照（`useChat` 拿到的那份）。
+     * @param {number} turnId - 回合号。
+     * @returns {unknown} 消息内容块数组；没有就是 undefined。
+     */
+    function lastUserContent(snapshot, turnId) {
+      const keys = snapshot?.locations?.getTurn?.(turnId)
+      if (!Array.isArray(keys)) return undefined
+      for (let index = keys.length - 1; index >= 0; index -= 1) {
+        const node = snapshot?.nodes?.get?.(keys[index])
+        if (node === undefined || node === null || node.kind !== 'user') continue
+        return node.data?.content
+      }
+      return undefined
+    }
+
+    /**
+     * 这个回合是怎么结束的（DSH 的 `turn/end` 事件里的 `reason.kind`）。
+     *
+     * 槽位 owner 直接把回合记录（`TurnLocation`）传进来，`turn.end` 就是那条 `turn/end`
+     * 事件；拿不到再从 Chat 快照的时间线里补一次（老版本 DSH 的 owner props 可能只给个 id）。
+     * @param {object} snapshot - Chat 快照。
+     * @param {unknown} turn - owner 传进来的回合（对象或回合号）。
+     * @param {number} turnId - 回合号。
+     * @returns {string} 结束原因；没结束 / 读不到就是空串。
+     */
+    function turnEndKind(snapshot, turn, turnId) {
+      const declared = turn !== null && typeof turn === 'object' ? turn.end?.data?.reason?.kind : undefined
+      if (typeof declared === 'string') return declared
+      const record = snapshot?.timeline?.turns?.get?.(turnId)
+      const kind = record?.end?.data?.reason?.kind
+      return typeof kind === 'string' ? kind : ''
+    }
+
+    /**
+     * 「停止 / 失败」的判定：只有 `aborted`（你按了停止）、`error`（本轮报错）、
+     * `interrupted`（DSH 进程中途退出）三种才给「编辑重发」。
+     * `completed`（跑完了）、`max-tokens`（撞输出上限）、`forked`、`blocked` 都不算。
+     * @param {object} snapshot - Chat 快照。
+     * @param {unknown} turn - owner 传进来的回合。
+     * @param {number} turnId - 回合号。
+     * @returns {'stopped'|'failed'|null} 停止 / 失败，其余为 null。
+     */
+    function turnOutcome(snapshot, turn, turnId) {
+      const kind = turnEndKind(snapshot, turn, turnId)
+      if (kind === 'aborted') return 'stopped'
+      if (kind === 'error' || kind === 'interrupted') return 'failed'
+      return null
+    }
+
+    /**
+     * 这个回合是不是**最后一个**回合。
+     *
+     * 历史回合不给入口：DSH 的会话只往后追加（没有回滚），对着三天前的一条消息
+     * 「重发」，结果会挂到今天的尾巴上，谁看都莫名其妙。最新的那一轮才值得重来一次。
+     * @param {object} snapshot - Chat 快照。
+     * @param {number} turnId - 回合号。
+     * @returns {boolean} 是否最后一个回合。
+     */
+    function isLatestTurn(snapshot, turnId) {
+      const order = snapshot?.timeline?.turnOrder
+      if (!Array.isArray(order) || order.length === 0) return false
+      return order[order.length - 1] === turnId
+    }
+
+    /**
+     * 会话「停止 / 失败」之后的「编辑重发」。
+     *
+     * 挂的是会话自己的 `conversation.chat.turnTail`（`ui-chat` 声明的列表槽）：
+     * 每个回合结束都会渲染一次、位置在动作行之前，**而且停止时哪怕一条回复都没有也照样渲染**
+     * （`turn-tail` 的 `closing` 为 null 时 owner 仍然把 tail 画出来，`assistant-actions`
+     * 那种挂在「已完结 assistant 消息」上的槽就做不到这一点）。
+     *
+     * 三个判断都从槽位自带的标准道具读，不碰任何私有接口：
+     *   - `turn`：owner 传进来的回合记录 → `turn.end.data.reason.kind` 判断停止 / 失败；
+     *   - `useChat`：Chat 快照 → 回合号顺序（是不是最后一轮）、这一轮里人工发的那条消息的正文；
+     *   - `useSession` / `useInput` / `inputActions`：会话本身（子代理跳过）与它的输入面板（草稿与发送）。
+     *
+     * 重发**不自己拼请求、不写会话日志**：先 `setDraft` 把文字放回输入框，再 `submit`——
+     * 和用户手打一条消息走的是同一条路（附件、斜杠命令、权限提示、队列全都按当前会话的规矩来）。
+     * @param {object} ctx - 客户端插件上下文。
+     * @returns {Function} 可以直接注册到 `conversation.chat.turnTail` 的组件。
+     */
+    function createTurnTailResend(ctx) {
+      /** 拿不到 Chat / Input 钩子时的占位：渲染期不能改 hook 顺序，一律当「没有数据」。 */
+      const emptyHook = () => undefined
+
+      return function EditResend(props) {
+        const turn = props?.turn
+        // owner 传的是回合记录本身；万一哪天换成 `{kind:'turn', turn: 记录}` 的包装，
+        // 就往下拆一层——拆不动也不会炸，最多是这次不给入口。
+        const turnRecord =
+          turn !== null && typeof turn === 'object' && typeof turn.turn === 'object' && turn.turn !== null ? turn.turn : turn
+        const turnId = Number.isSafeInteger(turn) ? turn : Number(turnRecord?.turn)
+        const useChat = typeof props?.useChat === 'function' ? props.useChat : emptyHook
+        const useInput = typeof props?.useInput === 'function' ? props.useInput : emptyHook
+        const useSession = typeof props?.useSession === 'function' ? props.useSession : emptyHook
+        const t = typeof props?.t === 'function' ? props.t : (key) => key
+        const inputActions = props?.inputActions
+
+        // 只选基本值：快照选择器返回新对象会让 React 每次渲染都当成新值。
+        const subagent = useSession((session) => session?.subagent !== null && session?.subagent !== undefined)
+        const outcome = useChat((snapshot) => turnOutcome(snapshot, turnRecord, turnId))
+        const latest = useChat((snapshot) => isLatestTurn(snapshot, turnId))
+        const prompt = useChat((snapshot) => contentText(lastUserContent(snapshot, turnId)))
+        const attachments = useChat((snapshot) => contentAttachmentCount(lastUserContent(snapshot, turnId)))
+        const composerDraft = useInput((input) => (typeof input?.draft === 'string' ? input.draft : ''))
+        const inputFrozen = useInput((input) => input?.phase === 'adjudicating' || input?.phase === 'submitting')
+
+        const [open, setOpen] = React.useState(false)
+        const [draft, setDraft] = React.useState('')
+        const [notice, setNotice] = React.useState('')
+        const area = React.useRef(null)
+
+        React.useEffect(() => {
+          if (open !== true) return
+          const node = area.current
+          if (node !== null && node !== undefined && typeof node.focus === 'function') node.focus()
+        }, [open])
+
+        // 停着没结束 / 历史回合 / 这一轮压根没人工消息（通知唤起）/
+        // 子代理会话（挂在父会话底下，输入面板是只读的）：都不给入口。
+        if (subagent === true || outcome === null || latest !== true || prompt === '') return null
+
+        const close = () => {
+          setOpen(false)
+          setNotice('')
+        }
+
+        const begin = () => {
+          setDraft(prompt)
+          setNotice('')
+          setOpen(true)
+        }
+
+        const send = () => {
+          const text = typeof draft === 'string' ? draft.trim() : ''
+          if (text === '') return
+          try {
+            if (typeof inputActions?.setDraft !== 'function' || typeof inputActions?.submit !== 'function') {
+              setNotice(t('editResendUnavailable'))
+              return
+            }
+            inputActions.setDraft(text)
+            inputActions.submit()
+            close()
+          } catch (error) {
+            reportClientFailure('edit-resend', error)
+            setNotice(t('editResendFailed'))
+          }
+        }
+
+        const onKeyDown = (event) => {
+          if (event === null || typeof event !== 'object') return
+          if (event.key === 'Escape') {
+            if (typeof event.preventDefault === 'function') event.preventDefault()
+            close()
+            return
+          }
+          if (event.key === 'Enter' && (event.metaKey === true || event.ctrlKey === true)) {
+            if (typeof event.preventDefault === 'function') event.preventDefault()
+            send()
+          }
+        }
+
+        if (open !== true) {
+          return h(
+            'div',
+            { className: 'tsr-row', 'data-outcome': outcome },
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'tsr-trigger',
+                title: t('editResendTitle'),
+                'aria-label': t('editResendTitle'),
+                onClick: begin,
+              },
+              editIcon(14),
+              h('span', { className: 'tsr-trigger-label' }, t('editResend')),
+            ),
+          )
+        }
+
+        const notes = [h('p', { key: 'note', className: 'tsr-note' }, t('editResendNote'))]
+        if (attachments > 0) {
+          notes.push(
+            h(
+              'p',
+              { key: 'attachments', className: 'tsr-note is-warn' },
+              t('editResendAttachments').replace('{n}', String(attachments)),
+            ),
+          )
+        }
+        if (inputFrozen === true) {
+          notes.push(h('p', { key: 'busy', className: 'tsr-note is-warn' }, t('editResendBusy')))
+        } else if (typeof composerDraft === 'string' && composerDraft.trim() !== '') {
+          notes.push(h('p', { key: 'overwrite', className: 'tsr-note is-warn' }, t('editResendOverwrite')))
+        }
+        if (notice !== '') {
+          notes.push(h('p', { key: 'notice', className: 'tsr-note is-error', role: 'status' }, notice))
+        }
+
+        return h(
+          'div',
+          { className: 'tsr-root', 'data-outcome': outcome },
+          h('textarea', {
+            ref: area,
+            className: 'tsr-input',
+            value: typeof draft === 'string' ? draft : '',
+            rows: 3,
+            spellCheck: false,
+            placeholder: t('editResendPlaceholder'),
+            'aria-label': t('editResendTitle'),
+            onChange: (event) => {
+              const value = event?.target?.value
+              setDraft(typeof value === 'string' ? value : '')
+            },
+            onKeyDown,
+          }),
+          notes,
+          h(
+            'div',
+            { className: 'tsr-actions' },
+            h('span', { className: 'tsr-shortcut' }, t('editResendShortcut')),
+            h('button', { type: 'button', className: 'tsk-btn', onClick: close }, t('cancel')),
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'tsk-btn is-primary',
+                disabled: inputFrozen === true || typeof draft !== 'string' || draft.trim() === '',
+                onClick: send,
+              },
+              sendIcon(13),
+              h('span', null, t('editResendSend')),
+            ),
+          ),
+        )
+      }
+    }
+
     return {
       inject: ['slots', 'locale'],
       apply(ctx) {
@@ -3803,6 +4246,27 @@ window.__ModuleLoader__.load({
         )
       } catch (error) {
         reportClientFailure('skills-section', error)
+      }
+
+      // 对话流：回合停止 / 失败之后的「编辑重发」。
+      // 槽位由 ui-chat 声明（每个回合结束渲染一次、位置在动作行之前）；老版本 DSH 没有
+      // 这个槽时 inject 等不到声明，什么也不会发生——不能让它把侧栏一起带走。
+      try {
+        const EditResend = createTurnTailResend(ctx)
+        ctx.slots.inject('conversation.chat.turnTail', () =>
+          ctx.slots.register(
+            {
+              name: 'conversation.chat.turnTail',
+              id: 'edit-resend',
+              order: 10,
+              label: () => t('editResend'),
+              locale: NS,
+            },
+            EditResend,
+          ),
+        )
+      } catch (error) {
+        reportClientFailure('edit-resend', error)
       }
     }
   },

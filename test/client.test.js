@@ -369,10 +369,10 @@ function render(state, props, extra) {
   return renderFrom(client, state, props, extra)
 }
 
-test('注册两个槽：sidebar.workspaces（priority -1 遮盖）与 settings.section「技能」页', () => {
+test('注册三个槽：sidebar.workspaces（priority -1 遮盖）、settings.section「技能」页、对话流「编辑重发」', () => {
   client.module.apply(client.ctx)
 
-  assert.equal(client.slots.length, 2, '侧栏浏览区 + 设置里的技能页')
+  assert.equal(client.slots.length, 3, '侧栏浏览区 + 设置里的技能页 + 对话流回合尾部的「编辑重发」')
   const sidebar = client.slots.find((slot) => slot.definition.name === 'sidebar.workspaces')
   assert.equal(sidebar.definition.priority, -1, 'single 槽必须用更低 priority 遮盖')
   const settings = client.slots.find((slot) => slot.definition.name === 'settings.section')
@@ -380,6 +380,12 @@ test('注册两个槽：sidebar.workspaces（priority -1 遮盖）与 settings.s
   assert.equal(settings.definition.order, 18, '插在内置插件 (15) 与 Agent 预设 (20) 之间')
   assert.equal(settings.definition.label(), '技能')
   assert.equal(typeof settings.Component, 'function')
+  const resend = client.slots.find((slot) => slot.definition.name === 'conversation.chat.turnTail')
+  assert.equal(resend.definition.id, 'edit-resend')
+  assert.equal(resend.definition.locale, 'taskFolders', '文案走插件自己的词典')
+  assert.equal(typeof resend.definition.label, 'function')
+  assert.equal(resend.definition.label(), '编辑重发')
+  assert.equal(typeof resend.Component, 'function')
 })
 
 test('注入 zh / en 词典与令牌化样式表（含状态点与按天分隔）', () => {
