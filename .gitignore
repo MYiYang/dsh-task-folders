@@ -6,3 +6,8 @@ npm-debug.log*
 Thumbs.db
 .vscode/
 .idea/
+
+# 本地分析稿 / 真机截图：只在本地留档，不随仓库与发布包外流
+ANALYSIS-*.md
+screenshots/
+*.local.*

@@ -193,23 +193,29 @@ async function bootstrap(options = {}) {
   const hostCalls = []
   const react = makeReact()
 
-  globalThis.window = { __ModuleLoader__: { load(definition) { loaded = definition } } }
-  globalThis.document = {
-    createElement() {
-      return { textContent: '', setAttribute() {}, remove() {} }
-    },
-    head: { appendChild(node) { styles.push(node) } },
-    // 弹出菜单走 createPortal 挂到 body：假 React 里原样返回，树形不变。
-    body: {},
-  }
-  globalThis.fetch = async (url) => {
-    const method = String(url).replace(/^.*task-folders\/api\//, '')
-    hostCalls.push(method)
-    if (method === 'newTaskSession') {
-      return { ok: true, status: 200, json: async () => ({ ok: true, value: { cwd: 'C:\\Users\\17915\\.dsh\\tasks', exists: true } }) }
+  // 全局桩单独装一份：同一进程里（--test-isolation=none）别的测试文件也会 bootstrap
+  // 一遍、把 globalThis.document 换成它自己的——那样本实例 apply 时画出去的样式就落进
+  // 别人的 styles 数组了。用例在 apply / 读样式前先调 useDom() 装回自己这份。
+  const installDom = () => {
+    globalThis.window = { __ModuleLoader__: { load(definition) { loaded = definition } } }
+    globalThis.document = {
+      createElement() {
+        return { textContent: '', setAttribute() {}, remove() {} }
+      },
+      head: { appendChild(node) { styles.push(node) } },
+      // 弹出菜单走 createPortal 挂到 body：假 React 里原样返回，树形不变。
+      body: {},
     }
-    return { ok: true, status: 200, json: async () => ({ ok: true, value: {} }) }
+    globalThis.fetch = async (url) => {
+      const method = String(url).replace(/^.*task-folders\/api\//, '')
+      hostCalls.push(method)
+      if (method === 'newTaskSession') {
+        return { ok: true, status: 200, json: async () => ({ ok: true, value: { cwd: 'C:\\Users\\17915\\.dsh\\tasks', exists: true } }) }
+      }
+      return { ok: true, status: 200, json: async () => ({ ok: true, value: {} }) }
+    }
   }
+  installDom()
 
   await import(moduleUrl)
   assert.equal(loaded.id, 'dsh-task-folders')
@@ -320,7 +326,7 @@ async function bootstrap(options = {}) {
     if (!primitives) throw new Error(`module not found: ${name}`)
     return FAKE_PRIMITIVES
   })
-  return { module, slots, dictionaries, styles, ctx, react, created, started, connected, opened, hostCalls, archiveCalls }
+  return { module, slots, dictionaries, styles, ctx, react, created, started, connected, opened, hostCalls, archiveCalls, useDom: installDom }
 }
 
 const client = await bootstrap()
@@ -370,6 +376,9 @@ function render(state, props, extra) {
 }
 
 test('注册三个槽：sidebar.workspaces（priority -1 遮盖）、settings.section「技能」页、对话流「编辑重发」', () => {
+  // 别的测试文件可能已经把 globalThis.document 换成它自己的桩了：装回本实例这份再 apply，
+  // 否则样式表会落进别人的 styles 数组（下面的样式用例就什么都读不到）。
+  client.useDom()
   client.module.apply(client.ctx)
 
   assert.equal(client.slots.length, 3, '侧栏浏览区 + 设置里的技能页 + 对话流回合尾部的「编辑重发」')
@@ -430,7 +439,7 @@ test('「项目」标题与工作区行都带文件夹图标（DSH 图标集）'
   assert.equal(caption.children[0].type, 'IconFolderCloseRegular', '「项目」前面是 DSH 的文件夹图标')
   assert.equal(caption.children[0].props.size, 14)
   assert.equal(caption.children[0].props.className, 'tsb-caption-icon')
-  assert.equal(collectText(caption).join(''), '项目', '图标不占文本')
+  assert.match(collectText(caption).join(''), /^项目/, '图标不占文本（后面可以跟活动数量）')
 
   const folders = collectByType(tree, 'span').filter((node) => node.props.className === 'tsb-folder')
   assert.equal(folders.length, 1, '每个工作区行一个文件夹图标')
@@ -520,6 +529,150 @@ test('「任务」按天分隔列会话（今天/昨天 + 标题 + 状态点 + �
   )
   assert.ok(sessionButton, '会话行应可点（点开会话）')
   assert.equal(typeof sessionButton.props.onClick, 'function')
+})
+
+test('上级行标出「下面有任务在跑」：任务组 / 按天 / 工作区组 / 工作区行 / 顶部「项目」', () => {
+  const tree = render(fixtureState())
+  const marks = collectByType(tree, 'span').filter((node) => node.props.className === 'tsb-runmark')
+
+  // 顺序：顶部「项目」→ 任务组 → 今天 → 昨天 → 工作区组 → 工作区行
+  assert.equal(marks.length, 6, '每一层上级各一个标记')
+  assert.deepEqual(
+    marks.map((mark) => mark.props['data-state']),
+    ['running', 'running', 'running', 'pending', 'pending', 'pending'],
+    '有在跑的就是 running（success），只有等回话的是 pending（warn）',
+  )
+
+  const captionMark = marks[0]
+  assert.equal(collectText(captionMark).join(''), '2', '顶部「项目」也带整体数量')
+  assert.match(captionMark.props.title, /下面有 1 个任务在跑/, '汇总里有一条在跑')
+  assert.match(captionMark.props.title, /下面有 1 个任务等你回话/, '也有一条在等回话')
+  assert.match(captionMark.props.title, /聊聊登录重构|别的项目会话/, '悬停直接列出是哪几条')
+  // session-cccc3333 同时出现在任务区与工作区（fixture 故意重叠）：按 id 去重，
+  // 不然顶部会把同一条会话数两遍。
+  assert.equal(
+    (captionMark.props.title.match(/等你回话/g) ?? []).length,
+    1,
+    '同一会话在两层里只算一次',
+  )
+
+  const taskMark = marks[1]
+  assert.equal(collectText(taskMark).join(''), '2', '任务组有两条在忙，带数量')
+  assert.match(taskMark.props.title, /聊聊登录重构/)
+  assert.match(taskMark.props['aria-label'], /任务在跑/)
+
+  const todayMark = marks[2]
+  assert.equal(collectText(todayMark).join(''), '1', '只有一条也要报数，不再只剩一个空点')
+  assert.match(todayMark.props.title, /聊聊登录重构/, '今天的标记只说今天这条')
+
+  const yesterdayMark = marks[3]
+  assert.match(yesterdayMark.props.title, /别的项目会话/, '昨天那条在等回话')
+  assert.doesNotMatch(yesterdayMark.props['aria-label'], /任务在跑/)
+  assert.match(yesterdayMark.props['aria-label'], /等你回话/)
+
+  const workspacesMark = marks[4]
+  assert.equal(workspacesMark.props['data-state'], 'pending')
+  assert.match(workspacesMark.props.title, /别的项目会话/, '工作区组汇总到具体工作区里的会话')
+
+  const workspaceMark = marks[5]
+  assert.match(workspaceMark.props.title, /别的项目会话/, '工作区行自己也要亮')
+})
+
+test('没有在跑 / 等回话的子孙时，上级行不挂标记', () => {
+  const idle = {
+    generatedAt: Date.now(),
+    tasksRoot: 'C:\\Users\\17915\\.dsh\\tasks',
+    taskWorkspaceId: 'w-tasks',
+    cwd: 'C:\\Users\\17915\\.dsh\\tasks',
+    canCreate: true,
+    layout: { dayFormat: 'YYYY-MM-DD', sessionLog: 'session.v4.jsonl.zstd' },
+    dayGroups: [
+      { day: TODAY, sessions: [{ id: 'session-bbbb2222', day: TODAY, createdAt: 1, live: false, archived: true }] },
+      { day: YESTERDAY, sessions: [{ id: 'session-eeee5555', day: YESTERDAY, createdAt: 2, live: false, archived: true }] },
+    ],
+    sessions: [],
+    workspaces: [],
+    totals: { sessions: 2, days: 2, workspaces: 0, workspaceSessions: 0 },
+  }
+  const tree = render(idle)
+  assert.equal(
+    collectByType(tree, 'span').filter((node) => node.props.className === 'tsb-runmark').length,
+    0,
+    '空闲 / 有新结果都不算「在跑」',
+  )
+})
+
+test('会话从空闲变成跑着：重画后上级标记跟着出现（状态源订阅驱动 tick）', () => {
+  const idleState = {
+    generatedAt: Date.now(),
+    tasksRoot: 'C:\\Users\\17915\\.dsh\\tasks',
+    taskWorkspaceId: 'w-tasks',
+    cwd: 'C:\\Users\\17915\\.dsh\\tasks',
+    canCreate: true,
+    layout: { dayFormat: 'YYYY-MM-DD', sessionLog: 'session.v4.jsonl.zstd' },
+    dayGroups: [
+      { day: TODAY, sessions: [{ id: 'session-bbbb2222', day: TODAY, createdAt: 1, live: false, archived: true }] },
+    ],
+    sessions: [],
+    workspaces: [],
+    totals: { sessions: 1, days: 1, workspaces: 0, workspaceSessions: 0 },
+  }
+  const countMarks = (tree) =>
+    collectByType(tree, 'span').filter((node) => node.props.className === 'tsb-runmark').length
+
+  assert.equal(countMarks(render(idleState)), 0, '空闲时上级不挂标记')
+
+  const saved = SESSION_STATUSES.get('session-bbbb2222')
+  SESSION_STATUSES.set('session-bbbb2222', { running: true, pendingInteraction: undefined, completionUnread: false })
+  try {
+    const running = render(idleState)
+    assert.equal(countMarks(running), 3, '同一份数据重画：「项目」+ 任务组 + 今天各亮一个')
+    const labels = collectByType(running, 'span')
+      .filter((node) => node.props.className === 'tsb-runmark')
+      .map((node) => node.props['aria-label'])
+    for (const label of labels) assert.match(label, /任务在跑/)
+  } finally {
+    if (saved === undefined) SESSION_STATUSES.delete('session-bbbb2222')
+    else SESSION_STATUSES.set('session-bbbb2222', saved)
+  }
+})
+
+test('组折起来时上级标记照样亮着；窄栏（wide=false）也留一颗', () => {
+  // tasksOpen / workspacesOpen 是第 5 / 第 6 个 useState（序号 4 / 5）：都折起来
+  const collapsed = render(fixtureState(), { wide: true }, { 4: false, 5: false })
+  const marks = collectByType(collapsed, 'span').filter((node) => node.props.className === 'tsb-runmark')
+  assert.equal(marks.length, 3, '「项目」+ 任务组 + 工作区组各一个（工作区行被收起，不算）')
+  assert.equal(
+    collectByType(collapsed, 'div').filter((node) => node.props.className === 'tsb-day').length,
+    0,
+    '会话按天列表确实折起来了',
+  )
+
+  const rail = render(fixtureState(), { wide: false, expandSidebar: () => {} })
+  assert.match(collectText(rail).join(' | '), /☰/)
+  const railMarks = collectByType(rail, 'span').filter((node) =>
+    String(node.props.className).startsWith('tsb-runmark'),
+  )
+  assert.equal(railMarks.length, 1, '窄条上只剩这一颗')
+  assert.equal(railMarks[0].props['data-state'], 'running')
+  assert.equal(railMarks[0].props.className, 'tsb-runmark is-dot', '窄条退回单点，不占胶囊宽度')
+  assert.equal(collectText(railMarks[0]).join(''), '', '窄条不摆数字')
+  assert.match(railMarks[0].props.title, /聊聊登录重构/)
+})
+
+test('「下面有任务在跑」标记的样式：胶囊 / 实心点 / 常显数字 / 状态令牌', () => {
+  const css = client.styles[0].textContent
+  assert.match(css, /\.tsb-runmark \{/, '标记有独立样式')
+  assert.match(css, /\.tsb-runmark \{[^}]*height: 18px/, '胶囊比原来的 8px 圆环更有体量')
+  assert.match(css, /\.tsb-runmark \{[^}]*--dsw-alias-state-success-tertiary/, '在跑 = success tertiary 底色')
+  assert.match(css, /\.tsb-runmark \{[^}]*--dsw-alias-label-primary/, '数字走 label-primary，浅色/深色都读得清')
+  assert.match(css, /\.tsb-runmark::before \{[^}]*background: var\(--dsw-alias-state-success-primary\)/, '实心点用 success 主色')
+  assert.match(css, /\.tsb-runmark\[data-state="pending"\] \{[^}]*--dsw-alias-state-warn-tertiary/, '等回话 = warn tertiary 底色')
+  assert.match(css, /\.tsb-runmark\[data-state="pending"\]::before \{[^}]*--dsw-alias-state-warn-primary/, '等回话 = warn 主色实心点')
+  assert.match(css, /\.tsb-runmark::before \{[^}]*animation: tsb-pulse/, '复用状态点的脉冲')
+  assert.match(css, /\.tsb-runmark\.is-dot \{/, '窄条退回单点')
+  assert.match(css, /\.tsb-day \.tsb-runmark \{[^}]*height: 16px/, '按天小标题的胶囊小一号')
+  assert.match(css, /\.tsb-day \{[^}]*display: flex/, '按天小标题要能横排「今天 + 标记」')
 })
 
 test('「任务」的 ＋ 在任务默认工作区里起会话（connectWorkspace），不碰私有 sessions.create', async () => {

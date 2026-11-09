@@ -51,6 +51,11 @@
  *      否则侧栏区域一矮，菜单就在内容底边被当场裁掉；
  *   2. 一组会话超过 `SESSION_LIMIT`（10）条就折进「展开其余 N 个会话」，
  *      跑着 / 等回话的那几条无论如何都露脸。
+ *
+ * v0.10 给上级行补「下面有任务在跑」的标记：会话行的状态点只说这一条，
+ * 折叠起来就看不见了。所以任务组 / 按天小标题 / 工作区组 / 工作区行 / 顶部「项目」
+ * 各自往上汇总：只要子孙里有跑着或等回话的，就在行尾亮一个脉冲小圆环（多条带数量），
+ * 悬停列出是哪几条；折叠状态照样看得见。
  */
 window.__ModuleLoader__.load({
   id: 'dsh-task-folders',
@@ -246,35 +251,6 @@ window.__ModuleLoader__.load({
       )
     }
 
-    /**
-     * 上行箭头（「重发」按钮）：优先用 DSH 图标集的 `IconSendOutlineRegular`。
-     * @param {number} [size] - 边长，默认 13（按钮里的小图标）。
-     * @returns {object} React 元素。
-     */
-    function sendIcon(size = 13) {
-      const Icon = primitives?.IconSendOutlineRegular
-      if (Icon !== undefined && Icon !== null) return h(Icon, { size })
-      return h(
-        'svg',
-        {
-          viewBox: '0 0 16 16',
-          width: size,
-          height: size,
-          fill: 'none',
-          stroke: 'currentColor',
-          strokeWidth: 1,
-          'aria-hidden': 'true',
-          focusable: 'false',
-        },
-        h('path', {
-          d: 'M6.97211 1.94476C7.55785 1.35914 8.50767 1.35919 9.09343 1.94476L13.921 6.77228L13.2138 7.47939L8.38632 2.65187C8.19108 2.45682 7.87443 2.45677 7.67922 2.65187L2.74397 7.58711L2.03687 6.88L6.97211 1.94476Z',
-          fill: 'currentColor',
-          stroke: 'none',
-        }),
-        h('path', { d: 'M7.97571 14.5732L8.02421 2.34139' }),
-      )
-    }
-
     /** 词典命名空间。 */
     const NS = 'taskFolders'    /** 区域 id（样式与排查用）。 */
     const REGION_ID = 'task-folders'
@@ -423,18 +399,16 @@ window.__ModuleLoader__.load({
       skillsNoDescription: '（没有描述）',
       skillsReading: '正在读取文件…',
       skillsHidden: '系统目录里的技能不在这里管理。',
-      // —— v0.9：回合停止 / 失败之后，把上一条消息拣回来改一改再发一次 ——
+      // —— v0.9：回合停止 / 失败之后，就地改这条消息再发一次 ——
       editResend: '编辑重发',
-      editResendTitle: '编辑上一条消息并重新发送',
+      editResendTitle: '就地编辑这条消息，改完重新发一次',
       editResendPlaceholder: '编辑这条消息',
-      editResendNote: '重发会用这段文字再开一轮；原来那条消息和这次的结果都留在记录里。',
-      editResendAttachments: '原消息带的 {n} 个附件不会一起重发。',
-      editResendOverwrite: '输入框里还有没发出去的内容，重发会替换掉它。',
-      editResendShortcut: 'Ctrl/⌘ + Enter 直接重发',
       editResendSend: '重发',
-      editResendBusy: '输入框正忙着发上一条，等它落定再重发。',
-      editResendUnavailable: '当前会话的输入框不可用，先把文字复制出来手动发送。',
-      editResendFailed: '重发失败',
+      editResendHint: 'Enter 重发 · Shift+Enter 换行',
+      editResendComposer: '用输入框改（可贴图）',
+      // —— v0.10：上级行上的「下面有任务在跑」标记 ——
+      runningBelow: '下面有 {n} 个任务在跑',
+      waitingBelow: '下面有 {n} 个任务等你回话',
     }
 
     const en = {
@@ -563,18 +537,16 @@ window.__ModuleLoader__.load({
       skillsNoDescription: '(no description)',
       skillsReading: 'Reading files…',
       skillsHidden: 'Skills in the system folder are not managed here.',
-      // —— v0.9: edit and resend after a stopped or failed Turn ——
+      // —— v0.9: edit this message in place and send it again ——
       editResend: 'Edit & resend',
-      editResendTitle: 'Edit the previous message and send it again',
+      editResendTitle: 'Edit this message in place, then send it again',
       editResendPlaceholder: 'Edit this message',
-      editResendNote: 'Resending starts a new Turn with this text; the original message and this Turn stay in the log.',
-      editResendAttachments: 'The {n} attachment(s) on the original message are not resent.',
-      editResendOverwrite: 'The composer still holds unsent text; resending replaces it.',
-      editResendShortcut: 'Ctrl/⌘ + Enter sends',
       editResendSend: 'Resend',
-      editResendBusy: 'The composer is still sending the previous message; resend once it settles.',
-      editResendUnavailable: 'The composer is unavailable in this session — copy the text and send it by hand.',
-      editResendFailed: 'Resend failed',
+      editResendHint: 'Enter to resend · Shift+Enter for a new line',
+      editResendComposer: 'Edit in the composer (paste images)',
+      // —— v0.10: "a task below is running" marks on ancestor rows ——
+      runningBelow: '{n} running below',
+      waitingBelow: '{n} waiting for you below',
     }
 
     /**
@@ -729,6 +701,9 @@ window.__ModuleLoader__.load({
  .tsb-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
  .tsb-meta { flex: 0 0 auto; font-size: 12px; line-height: 20px; color: var(--dsw-alias-label-tertiary); }
  .tsb-day {
+   display: flex;
+   align-items: center;
+   gap: 4px;
    flex: 0 0 auto;
    padding: 4px 8px 2px var(--tsb-indent, 10px);
    font-size: 11px;
@@ -770,6 +745,61 @@ window.__ModuleLoader__.load({
  @keyframes tsb-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
  @media (prefers-reduced-motion: reduce) {
    .tsb-dot[data-state="running"] { animation: none; }
+ }
+ /* —— v0.10：上级行的「下面有任务在跑」标记 ——
+    做成胶囊徽标：success-tertiary 底色 + 实心点 + 常显数字。
+    只画一个 8px 空心环时着色面积太小，远看像标题旁的小写 o；胶囊把色块与数量一起摆出来，
+    浅色/深色各用主题里的 tertiary 底，数字走 label-primary（success 色写小字对比不够）。
+    等回话时整枚换成 warn 色系；窄条（rail）位置不够，退回一个不带底色的实心点。 */
+ .tsb-runmark {
+   flex: 0 0 auto;
+   display: inline-flex;
+   align-items: center;
+   gap: 4px;
+   box-sizing: border-box;
+   height: 18px;
+   padding: 0 6px 0 5px;
+   border-radius: 999px;
+   background: var(--dsw-alias-state-success-tertiary, var(--dsw-alias-bg-layer-2));
+   color: var(--dsw-alias-label-primary);
+   font-size: 11px;
+   line-height: 18px;
+   font-weight: 500;
+   font-variant-numeric: tabular-nums;
+ }
+ .tsb-runmark::before {
+   content: '';
+   display: inline-block;
+   flex: 0 0 auto;
+   width: 7px;
+   height: 7px;
+   border-radius: 50%;
+   background: var(--dsw-alias-state-success-primary);
+   animation: tsb-pulse 1.6s ease-in-out infinite;
+ }
+ .tsb-runmark[data-state="pending"] {
+   background: var(--dsw-alias-state-warn-tertiary, var(--dsw-alias-bg-layer-2));
+ }
+ .tsb-runmark[data-state="pending"]::before {
+   background: var(--dsw-alias-state-warn-primary);
+   animation: none;
+ }
+ .tsb-runmark-count { flex: 0 0 auto; }
+ /* 窄条：只留一颗点，不占胶囊的宽度 */
+ .tsb-runmark.is-dot {
+   width: 8px;
+   height: 8px;
+   padding: 0;
+   border-radius: 50%;
+   background: transparent;
+ }
+ .tsb-runmark.is-dot::before { width: 8px; height: 8px; }
+ .tsb-day .tsb-runmark { height: 16px; padding: 0 5px 0 4px; font-size: 10px; line-height: 16px; }
+ .tsb-day .tsb-runmark::before { width: 6px; height: 6px; }
+ .tsb-day .tsb-runmark.is-dot { width: 8px; height: 8px; padding: 0; }
+ .tsb-rail .tsb-runmark.is-dot { width: 8px; height: 8px; }
+ @media (prefers-reduced-motion: reduce) {
+   .tsb-runmark::before { animation: none; }
  }
  .tsb-notice {
    flex: 0 0 auto;
@@ -1165,83 +1195,119 @@ window.__ModuleLoader__.load({
    line-height: 18px;
  }
  /* —— v0.9：回合停止 / 失败后的「编辑重发」 ——
-    这块长在对话流里（conversation.chat.turnTail），不是侧栏：字号跟着对话正文走
-    （正文 14 / 次要信息 13），别拿侧栏那套 12px 顶上来。 */
- .tsr-row {
-   display: flex;
-   align-items: center;
-   gap: 6px;
-   /* 收起状态只占一行按钮的高度，不额外撑开对话流 */
-   margin-top: -6px;
+    编辑时不是塞回底部输入框，而是**就地**把这条用户气泡换成编辑框：
+    给流节点打上 data-tsr-editing，把原生行藏起来，编辑框 portal 进同一个流节点，
+    右对齐、宽度跟气泡一样（ui-chat 的 userStack 是 70.2% / 最多 82%）。 */
+ /* 原生行的槽包裹层带内联 display:contents，必须 !important 才压得住。 */
+ [data-slot="conversation.chat.flow"] [data-tsr-editing="true"] > :not(.tsr-editor) {
+   display: none !important;
  }
- .tsr-trigger {
+ .tsr-host { display: none; }
+ /* 动作行里那颗铅笔（复制旁边）：几何照抄 ui-chat 的 MessageIconActions。 */
+ .tsr-action {
+   width: calc(28px + var(--dsh-content-font-delta, 0px));
+   height: calc(28px + var(--dsh-content-font-delta, 0px));
    display: inline-flex;
    align-items: center;
-   gap: 5px;
-   height: 26px;
-   padding: 0 8px 0 6px;
+   justify-content: center;
+   padding: 6px;
    border: none;
    border-radius: var(--dsw-radius-sm);
-   background: transparent;
+   background: 0 0;
    color: var(--dsw-alias-label-tertiary);
-   font: inherit;
-   font-size: 13px;
-   line-height: 20px;
    cursor: pointer;
  }
- .tsr-trigger:hover {
+ .tsr-action svg {
+   width: calc(15px + var(--dsh-content-font-delta, 0px));
+   height: calc(15px + var(--dsh-content-font-delta, 0px));
+ }
+ .tsr-action:hover {
    background: var(--dsw-alias-interactive-bg-hover);
    color: var(--dsw-alias-label-secondary);
  }
- .tsr-trigger-label { min-width: 0; }
- .tsr-root {
+ .tsr-action:focus-visible {
+   outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color);
+   outline-offset: 1px;
+ }
+ /* 就地编辑框：底色/圆角/宽度都跟用户气泡一致，字也一样大。 */
+ .tsr-editor {
    display: flex;
    flex-direction: column;
    gap: 6px;
    box-sizing: border-box;
-   max-width: 100%;
-   margin-top: 2px;
-   padding: 10px 12px;
+   width: min(calc(var(--dsh-chat-content-width, 748px) * .702), 82%);
+   margin-left: auto;
+   padding: 8px 10px 8px 12px;
    border: .5px solid var(--dsw-alias-border-l2);
-   border-radius: 8px;
-   background: var(--dsw-alias-bg-layer-1);
+   border-radius: var(--dsw-radius-xl);
+   background: var(--dsw-specific-bubble);
  }
- .tsr-input {
+ .tsr-editor-input {
    box-sizing: border-box;
    width: 100%;
-   min-height: 72px;
-   max-height: 360px;
-   padding: 7px 9px;
-   border: .5px solid var(--dsw-alias-border-l2);
-   border-radius: var(--dsw-radius-sm);
-   background: var(--dsw-alias-bg-base);
+   min-height: 44px;
+   max-height: 320px;
+   padding: 2px 4px;
+   border: none;
+   outline: none;
+   background: transparent;
    color: var(--dsw-alias-label-primary);
    font: inherit;
    font-size: var(--dsh-content-font-size, 14px);
    line-height: calc(22px + var(--dsh-content-font-delta, 0px));
-   resize: vertical;
+   resize: none;
+   overflow-y: auto;
  }
- .tsr-input::placeholder { color: var(--dsw-alias-label-tertiary); }
- .tsr-input:focus-visible,
- .tsr-trigger:focus-visible {
-   outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color);
-   outline-offset: 1px;
- }
- .tsr-note { margin: 0; color: var(--dsw-alias-label-tertiary); font-size: 13px; line-height: 19px; }
- .tsr-note.is-warn { color: var(--dsw-alias-state-warn-primary); }
- .tsr-note.is-error { color: var(--dsw-alias-state-error-primary); }
- .tsr-actions { display: flex; align-items: center; gap: 8px; }
- .tsr-shortcut {
-   flex: 1 1 auto;
+ .tsr-editor-input::placeholder { color: var(--dsw-alias-label-tertiary); }
+ .tsr-editor-foot { display: flex; align-items: center; gap: 8px; min-width: 0; }
+ .tsr-editor-hint {
+   flex: 0 1 auto;
    min-width: 0;
    overflow: hidden;
-   color: var(--dsw-alias-label-caption);
+   color: var(--dsw-alias-label-tertiary);
    font-size: 12px;
-   line-height: 18px;
+   line-height: 16px;
    text-overflow: ellipsis;
    white-space: nowrap;
  }
- .tsr-actions .tsk-btn { display: inline-flex; align-items: center; gap: 4px; }
+ .tsr-editor-link {
+   flex: 0 0 auto;
+   padding: 0;
+   border: none;
+   background: none;
+   color: var(--dsw-alias-brand-primary);
+   font: inherit;
+   font-size: 12px;
+   line-height: 16px;
+   cursor: pointer;
+ }
+ .tsr-editor-link:hover { text-decoration: underline; }
+ .tsr-editor-gap { flex: 1 1 auto; }
+ .tsr-btn {
+   flex: 0 0 auto;
+   height: 26px;
+   padding: 0 10px;
+   border: .5px solid var(--dsw-alias-border-l2);
+   border-radius: var(--dsw-radius-sm);
+   background: transparent;
+   color: var(--dsw-alias-label-primary);
+   font: inherit;
+   font-size: 12px;
+   line-height: 24px;
+   cursor: pointer;
+ }
+ .tsr-btn:hover { background: var(--dsw-alias-interactive-bg-hover); }
+ .tsr-btn[disabled] { cursor: default; opacity: .5; }
+ .tsr-btn.is-primary {
+   border-color: transparent;
+   background: var(--dsw-alias-button-primary-fill, var(--dsw-alias-brand-primary));
+   color: var(--dsw-alias-label-primary-foreground, #fff);
+ }
+ .tsr-btn:focus-visible,
+ .tsr-editor-link:focus-visible {
+   outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color);
+   outline-offset: 1px;
+ }
  @media (max-width: 640px) {
    .tsk-toolbar { flex-wrap: wrap; }
    .tsk-search { flex-basis: 100%; }
@@ -1377,6 +1443,70 @@ window.__ModuleLoader__.load({
         /* 退回快照 */
       }
       return fallbackRunning === true ? 'running' : 'idle'
+    }
+
+    /**
+     * 一组会话里「正在忙」的那些：跑着的 + 等你回话的。
+     *
+     * 上级行（任务组 / 按天小标题 / 工作区组 / 工作区行 / 顶部「项目」）靠它往上汇总——
+     * 会话行自己的状态点只说那一条，组一折起来就什么也看不见了。
+     * @param {object} ctx - 客户端上下文。
+     * @param {Array<{id?: string, running?: boolean}|string>} entries - 会话视图或 id。
+     * @param {(key: string) => string} t - 词典绑定（标题缺席时用「新会话」）。
+     * @returns {{ids: string[], states: string[], names: string[], count: number, running: number, pending: number}} 汇总。
+     */
+    function activeDescendants(ctx, entries, t) {
+      const ids = []
+      const states = []
+      const names = []
+      let running = 0
+      let pending = 0
+      const seen = new Set()
+      for (const entry of Array.isArray(entries) ? entries : []) {
+        const id = String(typeof entry === 'string' ? entry : entry?.id ?? '')
+        if (id === '' || seen.has(id)) continue
+        seen.add(id)
+        const info = sessionInfo(ctx, id)
+        const fallback =
+          (typeof entry === 'object' && entry !== null && entry.running === true) || info?.running === true
+        const status = statusOf(ctx, id, fallback)
+        if (status !== 'running' && status !== 'pending') continue
+        ids.push(id)
+        states.push(status)
+        if (status === 'running') running += 1
+        else pending += 1
+        names.push(info?.title || t('sessionUntitled'))
+      }
+      return { ids, states, names, count: ids.length, running, pending }
+    }
+
+    /**
+     * 把几份「正在忙」汇总叠成一份（上级的上级用），按 id 去重、顺序按传入顺序保留。
+     * @param {object[]} summaries - `activeDescendants` 的结果。
+     * @returns {{ids: string[], states: string[], names: string[], count: number, running: number, pending: number}} 合并结果。
+     */
+    function mergeActive(summaries) {
+      const ids = []
+      const states = []
+      const names = []
+      let running = 0
+      let pending = 0
+      const seen = new Set()
+      for (const summary of Array.isArray(summaries) ? summaries : []) {
+        if (summary === undefined || summary === null || !Array.isArray(summary.ids)) continue
+        for (let index = 0; index < summary.ids.length; index += 1) {
+          const id = summary.ids[index]
+          if (seen.has(id)) continue
+          seen.add(id)
+          ids.push(id)
+          const state = summary.states?.[index] === 'pending' ? 'pending' : 'running'
+          states.push(state)
+          if (state === 'running') running += 1
+          else pending += 1
+          names.push(summary.names?.[index] ?? '')
+        }
+      }
+      return { ids, states, names, count: ids.length, running, pending }
     }
 
     /**
@@ -2143,6 +2273,45 @@ window.__ModuleLoader__.load({
           Array.isArray(state?.archivedSessionIds) ? state.archivedSessionIds.map(String) : [],
         )
 
+        // ---- v0.10：上级行的「下面有任务在跑」汇总 ----
+        // 一次算清每一层：按天 → 任务组；工作区 → 工作区组；两边 → 顶部「项目」。
+        // 折叠不参与计算：折起来时上级正好该继续亮着；过滤参与（标的是你看得见的那些）。
+        const dayActive = new Map(dayGroups.map((group) => [group.day, activeDescendants(ctx, group.sessions, t)]))
+        const taskActive = mergeActive([...dayActive.values()])
+
+        /**
+         * 一个工作区当前要画的成员（跟着「归档过滤」与本地隐藏走，与行里列的一致）。
+         * @param {object} workspace - 工作区视图。
+         * @returns {string[]} 成员 id。
+         */
+        const workspaceMembers = (workspace) =>
+          (Array.isArray(workspace?.sessionIds) ? workspace.sessionIds : []).filter((sessionId) => {
+            if (hiddenIds.has(String(sessionId))) return false
+            const sidebarArchived = archivedSessionIds.has(String(sessionId))
+            if (archivedFilter === 'hide') return !sidebarArchived
+            if (archivedFilter === 'only') return sidebarArchived
+            return true
+          })
+
+        const workspaceActive = new Map(
+          plainWorkspaces.map((workspace) => [workspace.id, activeDescendants(ctx, workspaceMembers(workspace), t)]),
+        )
+        const workspacesActive = mergeActive([...workspaceActive.values()])
+        // 归档项目里的会话同样可能还在跑：分组标题与行上也要能看见。
+        const archivedWorkspaceActive = new Map(
+          archivedWorkspaces.map((workspace) => [
+            workspace.id,
+            activeDescendants(
+              ctx,
+              (Array.isArray(workspace?.sessionIds) ? workspace.sessionIds : []).filter(
+                (sessionId) => !hiddenIds.has(String(sessionId)),
+              ),
+              t,
+            ),
+          ]),
+        )
+        const archivedWorkspacesActive = mergeActive([...archivedWorkspaceActive.values()])
+        const allActive = mergeActive([taskActive, workspacesActive, archivedWorkspacesActive])
         /** 搜索能认出来的会话（任务区 + 各工作区名下，含已归档的）。 */
         const searchableSessions = React.useMemo(() => {
           const entries = []
@@ -2413,6 +2582,42 @@ window.__ModuleLoader__.load({
         }
 
         /**
+         * 上级行上的「下面有任务在跑」标记：浅色胶囊（实心点 + 常显数字），
+         * 等回话时整枚换 warn 色系；窄条位置不够，`count: false` 退回一个实心点。
+         * 悬停列出是哪几条——不用展开就知道下面谁在跑。
+         * @param {object} summary - `activeDescendants` / `mergeActive` 的结果。
+         * @param {string} key - React key。
+         * @param {{count?: boolean}} [options] - `count: false` 只画点（顶部窄条用）。
+         * @returns {object|null} React 元素（没有在跑的就没有标记）。
+         */
+        const renderActiveMark = (summary, key, options = {}) => {
+          if (summary === undefined || summary === null || !(summary.count > 0)) return null
+          const compact = options.count === false
+          const state = summary.running > 0 ? 'running' : 'pending'
+          const lines = []
+          if (summary.running > 0) lines.push(t('runningBelow').replace('{n}', String(summary.running)))
+          if (summary.pending > 0) lines.push(t('waitingBelow').replace('{n}', String(summary.pending)))
+          const label = lines.join('\n')
+          const names = (Array.isArray(summary.names) ? summary.names : []).filter(
+            (name) => typeof name === 'string' && name !== '',
+          )
+          const shownNames = names.slice(0, 5)
+          if (names.length > shownNames.length) shownNames.push('…')
+          return h(
+            'span',
+            {
+              className: compact ? 'tsb-runmark is-dot' : 'tsb-runmark',
+              key,
+              'data-state': state,
+              role: 'img',
+              'aria-label': label,
+              title: shownNames.length === 0 ? label : `${label}\n${shownNames.join('\n')}`,
+            },
+            compact ? null : h('span', { className: 'tsb-runmark-count' }, String(summary.count)),
+          )
+        }
+
+        /**
          * 「任务」组的内容：按天分隔的会话行（归档的按当前过滤档位决定显不显示）。
          * @returns {object[]} React 元素数组。
          */
@@ -2443,7 +2648,13 @@ window.__ModuleLoader__.load({
             if (entry.day !== currentDay) {
               currentDay = entry.day
               nodes.push(
-                h('div', { className: 'tsb-day', key: `day:${entry.day}`, style: { '--tsb-indent': '10px' } }, dayLabel(entry.day, t)),
+                h(
+                  'div',
+                  { className: 'tsb-day', key: `day:${entry.day}`, style: { '--tsb-indent': '10px' } },
+                  h('span', { className: 'tsb-day-label' }, dayLabel(entry.day, t)),
+                  // 这一天里只要还有任务在跑，按天小标题就亮着（会话折到「展开其余」也照样）。
+                  renderActiveMark(dayActive.get(entry.day), `day-active:${entry.day}`),
+                ),
               )
             }
             nodes.push(
@@ -2548,6 +2759,7 @@ window.__ModuleLoader__.load({
               },
               h('span', { className: archivedProjectsOpen ? 'tsb-chev is-open' : 'tsb-chev' }, triangleIcon()),
               h('span', { className: 'tsb-head-label' }, t('archivedProjects')),
+              renderActiveMark(archivedWorkspacesActive, 'archived-projects-active'),
               h('span', { className: 'tsb-count' }, String(archivedWorkspaces.length)),
             ),
           )
@@ -2567,6 +2779,7 @@ window.__ModuleLoader__.load({
                   },
                   h('span', { className: 'tsb-folder' }, folderIcon({ size: 16 })),
                   h('span', { className: 'tsb-title', title: workspace.path }, workspace.title),
+                  renderActiveMark(archivedWorkspaceActive.get(workspace.id), `archived-ws-active:${workspace.id}`),
                   h(
                     'button',
                     {
@@ -2594,13 +2807,7 @@ window.__ModuleLoader__.load({
           const isMenuOpen = menu !== null && menu.kind === 'workspace' && menu.id === workspace.id
           // 工作区自己的会话也要跟着「归档过滤」走（与内置侧栏一致）：
           // 隐藏已归档时不列归档的，仅已归档时只列归档的。
-          const members = (Array.isArray(workspace.sessionIds) ? workspace.sessionIds : []).filter((sessionId) => {
-            if (hiddenIds.has(String(sessionId))) return false
-            const sidebarArchived = archivedSessionIds.has(String(sessionId))
-            if (archivedFilter === 'hide') return !sidebarArchived
-            if (archivedFilter === 'only') return sidebarArchived
-            return true
-          })
+          const members = workspaceMembers(workspace)
           const className = ['tsb-row', isOpen ? 'is-open' : '', isMenuOpen ? 'is-menu-open' : '']
             .filter(Boolean)
             .join(' ')
@@ -2628,6 +2835,8 @@ window.__ModuleLoader__.load({
                 h('span', { className: 'tsb-folder' }, folderIcon({ open: isOpen, size: 16 })),
                 h('span', { className: isOpen ? 'tsb-chev is-open' : 'tsb-chev' }, triangleIcon()),
                 h('span', { className: 'tsb-title' }, workspace.title),
+                // 工作区里只要还有任务在跑 / 等回话，行尾就亮一个标记——收起时也看得见。
+                renderActiveMark(workspaceActive.get(workspace.id), `ws-active:${workspace.id}`),
                 h('span', { className: 'tsb-meta' }, String(members.length)),
               ),
               h(
@@ -2726,6 +2935,8 @@ window.__ModuleLoader__.load({
               },
               '☰',
             ),
+            // 侧栏整个折成窄条时，这是唯一还看得见的「下面有任务在跑」。
+            renderActiveMark(allActive, 'rail-active', { count: false }),
           )
         }
 
@@ -2745,6 +2956,7 @@ window.__ModuleLoader__.load({
             },
             h('span', { className: tasksOpen ? 'tsb-chev is-open' : 'tsb-chev' }, triangleIcon()),
             h('span', { className: 'tsb-head-label' }, t('tasks')),
+            renderActiveMark(taskActive, 'tasks-active'),
             h('span', { className: 'tsb-count' }, String(taskCount)),
           ),
           h(
@@ -2774,6 +2986,7 @@ window.__ModuleLoader__.load({
             },
             h('span', { className: workspacesOpen ? 'tsb-chev is-open' : 'tsb-chev' }, triangleIcon()),
             h('span', { className: 'tsb-head-label' }, t('workspaces')),
+            renderActiveMark(workspacesActive, 'workspaces-active'),
             h('span', { className: 'tsb-count' }, String(plainWorkspaces.length)),
           ),
           h(
@@ -2797,6 +3010,8 @@ window.__ModuleLoader__.load({
             { className: 'tsb-caption' },
             folderIcon({ size: 14, className: 'tsb-caption-icon' }),
             h('span', null, t('project')),
+            // 最顶上这一层也汇总：任务组与工作区组都折起来时，至少这里还亮着。
+            renderActiveMark(allActive, 'caption-active'),
             // 标题右侧：搜索（Ctrl/⌘+K）与视图选项（归档过滤三档）——内置侧栏这两样都在这一带。
             h(
               'div',
@@ -3926,23 +4141,6 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * 一段消息内容里带了几张图 / 几个文件。
-     * 重发只带文字：附件是草稿区的东西（浏览器里的 File 对象、上传回执），
-     * 从历史消息里捞不回来，所以这里只用来提醒，不参与重发。
-     * @param {unknown} content - 消息内容块。
-     * @returns {number} 附件个数。
-     */
-    function contentAttachmentCount(content) {
-      if (!Array.isArray(content)) return 0
-      let count = 0
-      for (const block of content) {
-        if (block === null || typeof block !== 'object') continue
-        if (block.type === 'image' || block.type === 'file') count += 1
-      }
-      return count
-    }
-
-    /**
      * 一个回合里**人工**发出的最后一条消息的内容。
      *
      * `conversation.chat.node` 里的用户消息有三种：`user`（你打的那句话）、
@@ -4013,22 +4211,98 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * 找一条用户消息的**动作行**（时间 + 复制那一行）。
+     *
+     * ui-chat 的用户行没有动作槽（`MessageIconActions` 是写死的，只有 assistant 才走
+     * `conversation.chat.assistant-actions`），所以只能按 DOM 找。用的两个坐标都是
+     * ui-chat 自己的约定，不是猜类名哈希：
+     *   - 流里每个节点外层带 `data-chat-flow-kind` / `data-chat-turn`（`ChatView` 写的，
+     *     滚动锚点与 Turn 导航都按它们找行）；
+     *   - 动作行本身带 `data-clock`（用户行是 `start`、回合尾部是 `end`）——`MessageIconActions`
+     *     写在行上，ui-chat 自己的样式也认这个属性。
+     * 找不到就返回 null，调用方什么都不画。
+     * @param {number} turnId - 回合号。
+     * @returns {Element|null} 这条用户消息的流节点；找不到就是 null（结构变了就什么都不做）。
+     */
+    function findUserItem(turnId) {
+      try {
+        if (typeof document === 'undefined' || typeof document.querySelectorAll !== 'function') return null
+        const items = document.querySelectorAll('[data-slot="conversation.chat.flow"] [data-chat-flow-kind="user"]')
+        const wanted = String(turnId)
+        let item = null
+        for (const candidate of items) {
+          if (
+            candidate !== null &&
+            typeof candidate.getAttribute === 'function' &&
+            candidate.getAttribute('data-chat-turn') === wanted
+          ) {
+            item = candidate
+          }
+        }
+        return item
+      } catch {
+        return null
+      }
+    }
+
+    /**
+     * 按内容量一次编辑框的高度（最多 320px，超出在框里滚动）。
+     * @param {Element|null|undefined} node - textarea 元素。
+     * @returns {void}
+     */
+    function growTextarea(node) {
+      try {
+        if (node === null || node === undefined || node.style === undefined) return
+        node.style.height = 'auto'
+        const height = Number(node.scrollHeight)
+        if (Number.isFinite(height) && height > 0) node.style.height = `${Math.min(height, 320)}px`
+      } catch {
+        /* 量不出来就按 rows 走 */
+      }
+    }
+
+    /**
+     * 把键盘送回会话输入框（尽力而为）。
+     *
+     * 公开的 `inputActions` 没有 focus；composer 的 contenteditable 带
+     * `[data-composer-input]`（`ComposerContentEditable` 写死的属性），就按这个找。
+     * 裸 DOM focus 可能把光标放到开头，但草稿已经先 `setDraft` 落到末尾，点一下即可修正。
+     * @returns {void}
+     */
+    function focusComposerInput() {
+      try {
+        if (typeof document === 'undefined' || typeof document.querySelector !== 'function') return
+        const input = document.querySelector('[data-composer-input]')
+        if (input !== null && input !== undefined && typeof input.focus === 'function') input.focus({ preventScroll: true })
+      } catch {
+        /* 聚焦失败不影响文字已经放进去 */
+      }
+    }
+
+    /**
      * 会话「停止 / 失败」之后的「编辑重发」。
      *
-     * 挂的是会话自己的 `conversation.chat.turnTail`（`ui-chat` 声明的列表槽）：
-     * 每个回合结束都会渲染一次、位置在动作行之前，**而且停止时哪怕一条回复都没有也照样渲染**
-     * （`turn-tail` 的 `closing` 为 null 时 owner 仍然把 tail 画出来，`assistant-actions`
-     * 那种挂在「已完结 assistant 消息」上的槽就做不到这一点）。
+     * 入口是**用户消息动作行里的一个小铅笔**（复制图标旁边），点开则**就地**把那条气泡换成
+     * 编辑框（不是塞回底部输入框）：给这条消息的流节点打上 `data-tsr-editing`，样式把原生行藏起来，
+     * 编辑框 `createPortal` 进同一个流节点，右对齐、宽度与气泡一致。
+     * 槽位仍用 `conversation.chat.turnTail`，但它只当**挂载点**：每个回合结束都会渲染一次，
+     * 又能拿到 `turn` / `useChat` / `useSession` / `inputActions` 这些标准道具。
      *
-     * 三个判断都从槽位自带的标准道具读，不碰任何私有接口：
+     * 判定仍从标准道具读，不碰私有接口：
      *   - `turn`：owner 传进来的回合记录 → `turn.end.data.reason.kind` 判断停止 / 失败；
-     *   - `useChat`：Chat 快照 → 回合号顺序（是不是最后一轮）、这一轮里人工发的那条消息的正文；
-     *   - `useSession` / `useInput` / `inputActions`：会话本身（子代理跳过）与它的输入面板（草稿与发送）。
+     *   - `useChat`：Chat 快照 → 是不是最后一轮、这一轮里人工发的那条消息的正文；
+     *   - `useSession` / `inputActions`：会话本身（子代理跳过）与它的输入面板。
      *
-     * 重发**不自己拼请求、不写会话日志**：先 `setDraft` 把文字放回输入框，再 `submit`——
-     * 和用户手打一条消息走的是同一条路（附件、斜杠命令、权限提示、队列全都按当前会话的规矩来）。
+     * 提交 = `setDraft(改好的字)` + `inputActions.submit()`：和手打一条消息走同一条路
+     * （队列、权限、命令全按当前会话的规矩来），插件不自己拼请求、不写会话日志。
+     * DSH 的会话是追加式日志、没有截断接口，所以「重发」就是在**本会话**里再发一条——
+     * 旧回合仍留在记录里，这是原生的样子，不是插件偷偷加戏。
+     * 编辑框只收文字；**贴图 / 拖文件**这类附件仍走下方原生输入框——编辑框里留了一个
+     * 「用输入框改（可贴图）」的出口，点它把当前文字放回 composer 并聚焦。
+     *
+     * 老版本 DSH 找不到那个动作行（或没有 `react-dom`）时什么都不渲染，不硬塞到别处。
      * @param {object} ctx - 客户端插件上下文。
-     * @returns {Function} 可以直接注册到 `conversation.chat.turnTail` 的组件。
+     * @returns {Function} 注册到 `conversation.chat.turnTail` 的组件（只负责把按钮送进用户行）。
      */
     function createTurnTailResend(ctx) {
       /** 拿不到 Chat / Input 钩子时的占位：渲染期不能改 hook 顺序，一律当「没有数据」。 */
@@ -4042,7 +4316,6 @@ window.__ModuleLoader__.load({
           turn !== null && typeof turn === 'object' && typeof turn.turn === 'object' && turn.turn !== null ? turn.turn : turn
         const turnId = Number.isSafeInteger(turn) ? turn : Number(turnRecord?.turn)
         const useChat = typeof props?.useChat === 'function' ? props.useChat : emptyHook
-        const useInput = typeof props?.useInput === 'function' ? props.useInput : emptyHook
         const useSession = typeof props?.useSession === 'function' ? props.useSession : emptyHook
         const t = typeof props?.t === 'function' ? props.t : (key) => key
         const inputActions = props?.inputActions
@@ -4052,140 +4325,171 @@ window.__ModuleLoader__.load({
         const outcome = useChat((snapshot) => turnOutcome(snapshot, turnRecord, turnId))
         const latest = useChat((snapshot) => isLatestTurn(snapshot, turnId))
         const prompt = useChat((snapshot) => contentText(lastUserContent(snapshot, turnId)))
-        const attachments = useChat((snapshot) => contentAttachmentCount(lastUserContent(snapshot, turnId)))
-        const composerDraft = useInput((input) => (typeof input?.draft === 'string' ? input.draft : ''))
-        const inputFrozen = useInput((input) => input?.phase === 'adjudicating' || input?.phase === 'submitting')
 
-        const [open, setOpen] = React.useState(false)
+        // 那条用户消息的 DOM 是别的组件画的：首帧可能还没进 DOM，挂载后再找一次；换了节点就跟上。
+        // 只对「停止 / 失败的最后一轮」查 DOM——跑完的回合一条查询都不发。
+        const candidate = outcome !== null && latest === true
+        const [item, setItem] = React.useState(() => (candidate ? findUserItem(turnId) : null))
+        React.useEffect(() => {
+          const next = candidate ? findUserItem(turnId) : null
+          if (next !== item) setItem(next)
+        })
+
+        const [editing, setEditing] = React.useState(false)
         const [draft, setDraft] = React.useState('')
-        const [notice, setNotice] = React.useState('')
         const area = React.useRef(null)
 
+        // 编辑时就地顶掉原生气泡：给这条消息的流节点打一个标记，样式把原生行藏起来。
         React.useEffect(() => {
-          if (open !== true) return
-          const node = area.current
-          if (node !== null && node !== undefined && typeof node.focus === 'function') node.focus()
-        }, [open])
+          if (editing !== true || item === null || typeof item.setAttribute !== 'function') return undefined
+          item.setAttribute('data-tsr-editing', 'true')
+          return () => {
+            try {
+              if (typeof item.removeAttribute === 'function') item.removeAttribute('data-tsr-editing')
+            } catch {
+              /* 节点已经被换掉就算了 */
+            }
+          }
+        }, [editing, item])
 
-        // 停着没结束 / 历史回合 / 这一轮压根没人工消息（通知唤起）/
-        // 子代理会话（挂在父会话底下，输入面板是只读的）：都不给入口。
-        if (subagent === true || outcome === null || latest !== true || prompt === '') return null
+        // 打开编辑框：聚焦、光标放到末尾、按内容量一次高度。
+        React.useEffect(() => {
+          if (editing !== true) return
+          const node = area.current
+          if (node === null || node === undefined) return
+          try {
+            if (typeof node.focus === 'function') node.focus({ preventScroll: true })
+            if (typeof node.setSelectionRange === 'function') {
+              const end = String(node.value ?? '').length
+              node.setSelectionRange(end, end)
+            }
+          } catch {
+            /* 聚焦失败不影响编辑 */
+          }
+          growTextarea(node)
+        }, [editing])
+
+        const ready =
+          subagent !== true &&
+          outcome !== null &&
+          latest === true &&
+          prompt !== '' &&
+          typeof inputActions?.setDraft === 'function'
+        if (ready !== true || item === null || item === undefined) return null
+
+        const portal = reactDom?.createPortal
+        if (typeof portal !== 'function') return null
+
+        const actions = typeof item.querySelector === 'function' ? item.querySelector('[data-clock="start"]') : null
 
         const close = () => {
-          setOpen(false)
-          setNotice('')
+          setEditing(false)
+          setDraft('')
         }
 
         const begin = () => {
           setDraft(prompt)
-          setNotice('')
-          setOpen(true)
+          setEditing(true)
         }
 
+        // 重发 = 把改好的字放回会话的输入面板，走它自己的提交（不自己拼请求、不写日志）。
         const send = () => {
           const text = typeof draft === 'string' ? draft.trim() : ''
           if (text === '') return
           try {
-            if (typeof inputActions?.setDraft !== 'function' || typeof inputActions?.submit !== 'function') {
-              setNotice(t('editResendUnavailable'))
-              return
-            }
             inputActions.setDraft(text)
             inputActions.submit()
             close()
           } catch (error) {
             reportClientFailure('edit-resend', error)
-            setNotice(t('editResendFailed'))
           }
         }
 
-        const onKeyDown = (event) => {
-          if (event === null || typeof event !== 'object') return
-          if (event.key === 'Escape') {
-            if (typeof event.preventDefault === 'function') event.preventDefault()
+        // 需要贴图 / 拖文件时退回下方原生输入框（那是唯一能挂附件的地方）。
+        const useComposer = () => {
+          const text = (typeof draft === 'string' && draft.trim() !== '' ? draft : prompt).trim()
+          try {
+            inputActions.setDraft(text)
+            focusComposerInput()
             close()
-            return
-          }
-          if (event.key === 'Enter' && (event.metaKey === true || event.ctrlKey === true)) {
-            if (typeof event.preventDefault === 'function') event.preventDefault()
-            send()
+          } catch (error) {
+            reportClientFailure('edit-resend', error)
           }
         }
 
-        if (open !== true) {
-          return h(
-            'div',
-            { className: 'tsr-row', 'data-outcome': outcome },
-            h(
+        const node = editing === true
+          ? h(
+              'div',
+              { className: 'tsr-editor', 'data-tsr-editor': 'true' },
+              h('textarea', {
+                ref: area,
+                className: 'tsr-editor-input',
+                value: typeof draft === 'string' ? draft : '',
+                rows: 2,
+                spellCheck: false,
+                placeholder: t('editResendPlaceholder'),
+                'aria-label': t('editResendTitle'),
+                onChange: (event) => {
+                  const value = event?.target?.value
+                  setDraft(typeof value === 'string' ? value : '')
+                  growTextarea(event?.target)
+                },
+                onKeyDown: (event) => {
+                  if (event === null || typeof event !== 'object') return
+                  if (event.key === 'Escape') {
+                    if (typeof event.preventDefault === 'function') event.preventDefault()
+                    close()
+                    return
+                  }
+                  if (event.key !== 'Enter' || event.shiftKey === true) return
+                  if (typeof event.preventDefault === 'function') event.preventDefault()
+                  send()
+                },
+              }),
+              h(
+                'div',
+                { className: 'tsr-editor-foot' },
+                h('span', { className: 'tsr-editor-hint' }, t('editResendHint')),
+                h('button', { type: 'button', className: 'tsr-editor-link', onClick: useComposer }, t('editResendComposer')),
+                h('span', { className: 'tsr-editor-gap' }),
+                h('button', { type: 'button', className: 'tsr-btn', onClick: close }, t('cancel')),
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'tsr-btn is-primary',
+                    disabled: typeof draft !== 'string' || draft.trim() === '',
+                    onClick: send,
+                  },
+                  t('editResendSend'),
+                ),
+              ),
+            )
+          : h(
               'button',
               {
                 type: 'button',
-                className: 'tsr-trigger',
+                className: 'tsr-action',
                 title: t('editResendTitle'),
                 'aria-label': t('editResendTitle'),
+                'data-tsr-edit-resend': 'true',
                 onClick: begin,
               },
-              editIcon(14),
-              h('span', { className: 'tsr-trigger-label' }, t('editResend')),
-            ),
-          )
-        }
+              editIcon(15),
+            )
 
-        const notes = [h('p', { key: 'note', className: 'tsr-note' }, t('editResendNote'))]
-        if (attachments > 0) {
-          notes.push(
-            h(
-              'p',
-              { key: 'attachments', className: 'tsr-note is-warn' },
-              t('editResendAttachments').replace('{n}', String(attachments)),
-            ),
-          )
+        const target = editing === true ? item : actions
+        if (target === null || target === undefined) return null
+        let portalNode
+        try {
+          portalNode = portal(node, target)
+        } catch (error) {
+          // 目标节点在渲染间隙被换掉之类的小概率情况：这一颗不画，别拖垮整条对话流。
+          reportClientFailure('edit-resend-portal', error)
+          return null
         }
-        if (inputFrozen === true) {
-          notes.push(h('p', { key: 'busy', className: 'tsr-note is-warn' }, t('editResendBusy')))
-        } else if (typeof composerDraft === 'string' && composerDraft.trim() !== '') {
-          notes.push(h('p', { key: 'overwrite', className: 'tsr-note is-warn' }, t('editResendOverwrite')))
-        }
-        if (notice !== '') {
-          notes.push(h('p', { key: 'notice', className: 'tsr-note is-error', role: 'status' }, notice))
-        }
-
-        return h(
-          'div',
-          { className: 'tsr-root', 'data-outcome': outcome },
-          h('textarea', {
-            ref: area,
-            className: 'tsr-input',
-            value: typeof draft === 'string' ? draft : '',
-            rows: 3,
-            spellCheck: false,
-            placeholder: t('editResendPlaceholder'),
-            'aria-label': t('editResendTitle'),
-            onChange: (event) => {
-              const value = event?.target?.value
-              setDraft(typeof value === 'string' ? value : '')
-            },
-            onKeyDown,
-          }),
-          notes,
-          h(
-            'div',
-            { className: 'tsr-actions' },
-            h('span', { className: 'tsr-shortcut' }, t('editResendShortcut')),
-            h('button', { type: 'button', className: 'tsk-btn', onClick: close }, t('cancel')),
-            h(
-              'button',
-              {
-                type: 'button',
-                className: 'tsk-btn is-primary',
-                disabled: inputFrozen === true || typeof draft !== 'string' || draft.trim() === '',
-                onClick: send,
-              },
-              sendIcon(13),
-              h('span', null, t('editResendSend')),
-            ),
-          ),
-        )
+        // 挂载点本身不占位（真正画出去的是 portal），hidden 与样式都兜一层。
+        return h('div', { className: 'tsr-host', hidden: true }, portalNode)
       }
     }
 
