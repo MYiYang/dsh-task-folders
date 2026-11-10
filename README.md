@@ -66,6 +66,10 @@
 同形 16×16 SVG（文件夹与折叠箭头都是描边图形）。**一个图标绝不该把整块侧栏吃掉**——client
 半侧的 `require` 抛错会让整个槽位注册失败、页面看起来什么都没发生，所以这里整段包在 try/catch 里。
 
+颜色上跟着内置侧栏走：**打开着的文件夹是蓝的**（`.tsb-folder.is-active` →
+`--dsw-alias-state-business-primary`，内置 `.wnFoaW_folderActive` 同款）；收起来、但里面正开着
+主视图那条会话的工作区也保持蓝色。判据与取舍见下文「v0.11.2」。
+
 ## 为什么任务必须是一个工作区
 
 v0.3 曾经把「任务」定义成「无工作区的会话」（内置侧栏叫「未分组」）。这个定义在 DSH 里
@@ -186,7 +190,9 @@ $DSH_HOME/task-folders/projects.json   →  {"version":1,"archived":["<workspace
 
 ### 4. 搜索
 
-- 入口：标题右侧的放大镜，或 **Ctrl/⌘ + K**（与内置侧栏同一个快捷键）；Esc 收起。
+- 入口：标题右侧的放大镜，或 **Ctrl/⌘ + K**（与内置侧栏同一个快捷键）。
+- 收起：再点一次放大镜、框尾那颗 ✕（常显）、Esc，或点头部以外（没输词时自动收）；
+  点开一条结果也会先收起——框不会挂在那儿。
 - 两层结果合并：本地按**会话标题 / 所属工作区 / 会话 id** 立刻命中；停手 250ms 后
   再叠一层 Host 全文搜索 `sessions.search(query, signal)`，带会话历史里的**摘要片段**。
 - 结果行：状态点 + 标题 + 所属工作区 + 摘要；归档的会话带徽标，行尾直接给「取消归档」。
@@ -458,6 +464,94 @@ v0.10 让**上级替下面亮灯**：只要子孙里还有跑着的、或者等�
 
 v0.10.1 把最初那枚 8px 空心环换成了现在这枚常显数字的胶囊：官人看图后说「颜色图标不太明显」，
 空心环的着色面积不到 20px²、单条又不带数字，远看确实像标题旁的小写字母。
+
+## v0.11：顶部「项目」行不再随列表滚动
+
+侧栏里只有一层滚动，原来就是 `.tsb-root` 自己（`overflow: auto`）：标题、搜索框、任务按天、
+工作区、归档组全是它的同级子元素，于是一滚列表，「项目」那一行（连着放大镜与「…」）跟着跑。
+父级 `.wtg9ga_regionArea` 是 `overflow: hidden` 的列，不接管滚动，所以问题出在自己这一层。
+
+内置侧栏是**结构拆分**，不是 sticky——`ui-workspace` 的 CSS 就摆在那儿：
+
+```
+.GAkraW_root         flex:1; min-height:0; flex-direction:column
+  .GAkraW_sectionHeader  flex:none; height:36px     ← 标题在滚动容器之外
+  .GAkraW_listArea       flex:1; min-height:0
+    .GAkraW_list         flex:1; overflow-y:auto; scrollbar-gutter:stable
+    .GAkraW_fade         bottom:0; 渐隐到 --dsw-specific-sidebar-fill
+```
+
+v0.11 照这套几何改，一处不动 Host：
+
+- `.tsb-root` 由 `overflow: auto` 收紧成 `overflow: hidden`，底内边距挪进滚动区；
+- 新增 `.tsb-top`（`flex: 0 0 auto`）：装「项目」标题与展开时的搜索框，**常驻**；
+- 新增 `.tsb-scroll`（`flex: 1 1 auto; min-height: 0; overflow-y: auto`）：装按天分组、
+  工作区、已归档项目与各种提示，**唯一的那层滚动**。
+
+几处刻意保持：菜单仍是 `createPortal` 挂 `document.body`，头部被收紧也不受裁剪；收起菜单靠
+`window` 的 `scroll` 捕获相，元素级滚动照样触发；窄条形态（`.tsb-rail`）是另一棵树，未动；
+缩进台阶与行高全在根与行自己身上，标题和行的左缘没位移。
+
+代价只有一个：滚动条从「区域的」变成「列表的」，右侧内边距随滚动条出现略缩一格。真要抹平，
+给 `.tsb-scroll` 补 `scrollbar-gutter: stable` 即可（无滚动条时也会常占一条）。
+
+## v0.11.1：搜索框关得掉
+
+v0.5 起搜索框只画了一半：放大镜点开以后，框尾那颗 ✕ **只在输入框里有词时才出现**，而且它
+**只清词、不收框**。于是空词状态下点开搜索，框就挂在那儿再也回不去——唯一的出口是一个没人
+知道的 Esc。
+
+内置侧栏的 `clearButton` 是**展开就有**的，点了还顺手把框收起来（`setQuery(""); changeSearchExpanded(false)`），
+外面点一下、Esc、点开一条结果也都收。v0.11.1 把缺的出口补齐，并且全收到同一个动作上：
+
+| 从哪儿收 | 行为 |
+| --- | --- |
+| 放大镜再点一次 | 开 / 关同一个入口（开着时常亮，标成「收起搜索」） |
+| 框尾那颗 ✕ | **常显**；清词 + 收框（内置 `clearButton` 同款语义） |
+| Esc | 清词 + 收框（原来的行为保留） |
+| 点头部（`.tsb-top`）以外 | 还没输词时自动收起；输着词就留着结果（内置也是这么分的） |
+| 点开一条搜索结果 | 先收起、再打开会话——侧栏立刻回到任务列表 |
+
+关键是**清词与收框必须一起做**：列表画什么只看 `query`（`searching = query.trim() !== ''`），
+只收框不清词，框下面的结果还挂着；只清词不收框，输入框又白白占一行。所以上面五条路径都只调
+`closeSearch()`，以后再加出口也只调它。
+
+## v0.11.2：打开着的文件夹是蓝的
+
+内置侧栏里，那枚**打开的文件夹图标在「当前项目」上是蓝的**——`ui-workspace` 的
+`Rows.module.css` 只有这么一条：
+
+```css
+.wnFoaW_folderActive { color: var(--dsw-alias-state-business-primary); }
+```
+
+而 `--dsw-alias-state-business-primary` 在浅色主题里就是 `--dsw-static-deepseek-500`
+（`#4176e6`）。挂不挂这个类，内置算的是：
+
+```js
+const active = containsCurrentDescendant || group.expanded && group.containsCurrent
+className: clsx(slot, folder, active && folderActive)
+```
+
+也就是「**展开着、而且装着主视图里正开着的那条会话**」。两个条件缺一个就退回灰：
+工作区没展开、或者当前会话根本不在这个工作区里。README 里还有一句：工作区树里
+祖先节点**折起来也照样高亮**（ancestor folder icons stay highlighted）。
+
+v0.11.2 把这个样子补上，判据用同一份：
+
+| 什么状态 | 文件夹 | 颜色 |
+| --- | --- | --- |
+| 收着、里面也没有当前会话 | 闭合 | 灰（不变） |
+| **展开着（打开文件夹）** | 打开 | **蓝** `.tsb-folder.is-active` |
+| 收着、但正开着里面某条会话 | 闭合 | **蓝**（内置的祖先高亮） |
+
+「当前会话」不另开状态：`sessions.list` 快照里 `retainedBy.mainView > 0` 的那一条就是
+（内置 `ui-workspace` 的 `mainSessionId()` 同一个字段）。快照一变 `subscribe` 就把这一块
+重画一遍，所以「打开另一条会话」时蓝色会自己跟着换项目走。
+
+选择器写成 `.tsb-row .tsb-folder.is-active`（0,3,0）而不是 `.tsb-folder.is-active`：
+它得压过前一条 `.tsb-row.is-open .tsb-folder { color: var(--dsw-alias-label-secondary) }`，
+同样是 0,3,0，靠源码顺序赢。收起来的行不必额外处理——那条规则只认 `is-open`。
 
 ## 顺带一提：为什么「项目归档」不写进工作区登记
 

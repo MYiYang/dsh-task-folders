@@ -56,6 +56,25 @@
  * 折叠起来就看不见了。所以任务组 / 按天小标题 / 工作区组 / 工作区行 / 顶部「项目」
  * 各自往上汇总：只要子孙里有跑着或等回话的，就在行尾亮一个脉冲小圆环（多条带数量），
  * 悬停列出是哪几条；折叠状态照样看得见。
+ *
+ * v0.11 收顶部：「项目」那一行（含放大镜 / 视图选项 / 搜索框）不再跟着列表滚。
+ * 照内置侧栏的几何拆两层——根收紧成 `overflow: hidden`，标题与搜索框进 `.tsb-top`
+ * （`flex: 0 0 auto`），列表进 `.tsb-scroll`（`flex: 1 1 auto; min-height: 0;
+ * overflow-y: auto`）。滚动只剩这一层，头部常驻；内置是 `.GAkraW_root → sectionHeader
+ * + listArea/list`，同一套思路。
+ *
+ * v0.11.1 修「搜索框关不掉」：原来只有输入框里有词时才画一颗 ✕，而那颗 ✕ 只清词、不收框，
+ * 于是空词状态下搜索框一露头就再也回不去（只剩一个没人知道的 Esc）。现在照内置侧栏补齐
+ * 四条收起路径，全部走同一个 `closeSearch()`（清词 + 收框，缺一不可）：
+ *   1. 放大镜再点一次 = 收起（开 / 关同一个入口）；
+ *   2. 框尾那颗 ✕ **常显**（内置的 `clearButton` 也是展开就有），点了清词 + 收框；
+ *   3. 点到头部以外（`.tsb-top` 之外）且还没输词，自动收起（内置的 document click）；
+ *   4. 点开一条搜索结果就等于选完了：先收起再打开会话，侧栏立刻回到任务列表。
+ *
+ * v0.11.2 补内置侧栏的蓝色文件夹（`.wnFoaW_folderActive` → `--dsw-alias-state-business-primary`，
+ * 即 deepseek-500 #4176e6）：**打开着的**文件夹是蓝的；收着、但里面正开着主视图那条会话的
+ * 工作区也是蓝的（内置的祖先高亮）。「当前会话」照内置取 `sessions.list` 快照里
+ * `retainedBy.mainView > 0` 的那一条，不另存状态——快照一变就跟着重画。
  */
 window.__ModuleLoader__.load({
   id: 'dsh-task-folders',
@@ -294,6 +313,7 @@ window.__ModuleLoader__.load({
       search: '搜索会话',
       searchPlaceholder: '搜索会话名称',
       searchClear: '清除搜索',
+      searchClose: '收起搜索',
       searchPending: '正在搜索会话历史…',
       searchEmpty: '无匹配会话',
       searchHasMore: '仅显示前 20 条结果，请缩小范围',
@@ -435,6 +455,7 @@ window.__ModuleLoader__.load({
       search: 'Search sessions',
       searchPlaceholder: 'Search session names',
       searchClear: 'Clear search',
+      searchClose: 'Close search',
       searchPending: 'Searching session history…',
       searchEmpty: 'No matching sessions',
       searchHasMore: 'Showing the first 20 results; narrow the search',
@@ -571,9 +592,30 @@ window.__ModuleLoader__.load({
       连视图选项的弹出菜单都被内容底边当场切掉。 */
    flex: 1 1 auto;
    min-height: 0;
-   padding: 2px 6px 6px;
-   overflow: auto;
+   /* 底距留给下面的滚动区，免得最后一行贴着区域底边 */
+   padding: 2px 6px 0;
+   /* 自己不再滚：滚动归 .tsb-scroll。这样「项目」标题与搜索框留在滚动之外，
+       跟内置侧栏的 sectionHeader / list 同一个几何（标题常驻，列表自滚）。 */
+   overflow: hidden;
    color: var(--dsw-alias-label-primary);
+ }
+ /* 常驻头：标题 + 展开时的搜索框。不许被压扁、不参与滚动。 */
+ .tsb-top {
+   flex: 0 0 auto;
+   display: flex;
+   flex-direction: column;
+   gap: 2px;
+ }
+ /* 唯一的那层滚动：任务按天 / 工作区 / 归档组 / 提示都在这下面滚。 */
+ .tsb-scroll {
+   flex: 1 1 auto;
+   min-height: 0;
+   display: flex;
+   flex-direction: column;
+   gap: 2px;
+   overflow-y: auto;
+   overflow-x: hidden;
+   padding-bottom: 6px;
  }
  .tsb-caption {
    display: flex;
@@ -599,6 +641,10 @@ window.__ModuleLoader__.load({
  }
  .tsb-row.is-open .tsb-folder,
  .tsb-row.is-open .tsb-chev { color: var(--dsw-alias-label-secondary); }
+ /* 打开着的文件夹是蓝的：内置侧栏那枚 .wnFoaW_folderActive 就是这一句
+    （color: var(--dsw-alias-state-business-primary)，即 deepseek-500）。
+    选择器带上 .tsb-row（0,3,0），才压得过上面那条 .tsb-row.is-open .tsb-folder。 */
+ .tsb-row .tsb-folder.is-active { color: var(--dsw-alias-state-business-primary); }
  .tsb-group {
    display: flex;
    align-items: center;
@@ -835,6 +881,8 @@ window.__ModuleLoader__.load({
    cursor: pointer;
  }
  .tsb-icon:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+ /* 搜索开着时放大镜常亮：它此刻就是「收起」按钮，得看得出自己按下去过（与 hover 同一层底色）。 */
+ .tsb-icon.is-active { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
  .tsb-search {
    display: flex;
    align-items: center;
@@ -859,6 +907,8 @@ window.__ModuleLoader__.load({
    outline: none;
  }
  .tsb-search-input::placeholder { color: var(--dsw-alias-label-tertiary); }
+ /* 框尾那颗 ✕：常显，靠右；字比图标小一号，视觉重量跟放大镜一致。 */
+ .tsb-search-close { flex: 0 0 auto; font-size: 12px; line-height: 1; }
  .tsb-search-status { padding: 2px 8px 4px 24px; font-size: 11px; line-height: 15px; color: var(--dsw-alias-label-tertiary); }
  /* 会话行尾的「…」：平时不占位，鼠标进来 / 菜单开着才出现（与内置侧栏的行操作一致）。 */
  .tsb-more {
@@ -1421,6 +1471,27 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * 主视图里正开着的那条会话：内置侧栏也是这么认的——
+     * `sessions.list` 快照里 `retainedBy.mainView > 0` 的那一条（`ui-workspace` 的
+     * `mainSessionId()`）。拿不到、或者后台面板盖住了主视图，就当没有。
+     * @param {object} ctx - 客户端上下文。
+     * @returns {string|undefined} 会话 id。
+     */
+    function currentSessionId(ctx) {
+      try {
+        const snapshot = ctx.get('sessions')?.list?.getSnapshot?.()
+        const byId = snapshot?.byId
+        if (byId === null || typeof byId !== 'object') return undefined
+        for (const row of Object.values(byId)) {
+          if ((row?.retainedBy?.mainView ?? 0) > 0 && typeof row?.id === 'string') return row.id
+        }
+        return undefined
+      } catch {
+        return undefined
+      }
+    }
+
+    /**
      * 一条会话的状态点状态：与 DSH 的 StateDot 同一套语义。
      * pending（待批准/待审计划/待回答）> running > 有新结果 > idle。
      * @param {object} ctx - 客户端上下文。
@@ -1777,8 +1848,22 @@ window.__ModuleLoader__.load({
         const [menuAnchor, setMenuAnchor] = React.useState(null)
 
         const searchInput = React.useRef(null)
+        /** 常驻头（标题行 + 搜索框）：点到它外面才算「离开搜索」，见下面的 mousedown 监听。 */
+        const searchTop = React.useRef(null)
 
         const mounted = React.useRef(true)
+
+        /**
+         * 收起搜索：**清词与收框必须一起做**。
+         *
+         * `searching` 只看 query——只收框不清词，列表那块就还是搜索结果，搜索框一露头就再也
+         * 变不回任务 / 工作区；只清词不收框，输入框又白白挂在那儿。所以所有收起路径（✕、
+         * 再点一次放大镜、Esc、点开一条结果、点头部以外）都只调这一个函数。
+         */
+        const closeSearch = React.useCallback(() => {
+          setQuery('')
+          setSearchOpen(false)
+        }, [])
 
         /**
          * 一组会话默认铺开几条：`SESSION_LIMIT` 之后折进「展开其余 N 个会话」；
@@ -2079,13 +2164,31 @@ window.__ModuleLoader__.load({
             }
             if (event.key === 'Escape') {
               setMenu(null)
-              setSearchOpen(false)
-              setQuery('')
+              closeSearch()
             }
           }
           document.addEventListener('keydown', onKeyDown)
           return () => document.removeEventListener('keydown', onKeyDown)
-        }, [])
+        }, [closeSearch])
+
+        // 点到常驻头（标题行 + 搜索框）以外就收起搜索：内置侧栏的 `document click` 同一套。
+        // 只在**还没输词**时收——输着词的时候结果正列在下面，碰一下别处就把结果收掉反而碍事
+        // （内置也是 `if (normalizedQuery !== "") return`）。有词的收起走 ✕ / 放大镜 / Esc。
+        React.useEffect(() => {
+          if (!searchOpen) return undefined
+          if (typeof document === 'undefined' || typeof document.addEventListener !== 'function') return undefined
+          const onPointerDown = (event) => {
+            const top = searchTop.current
+            const target = event?.target
+            if (top !== null && top !== undefined && typeof top.contains === 'function' && target !== null && top.contains(target) === true) {
+              return
+            }
+            if (query.trim() !== '') return
+            setSearchOpen(false)
+          }
+          document.addEventListener('mousedown', onPointerDown)
+          return () => document.removeEventListener('mousedown', onPointerDown)
+        }, [searchOpen, query])
 
         // 全文搜索（Host 的 `sessions.search`）：输入停 250ms 再发，换词就 abort 上一发。
         React.useEffect(() => {
@@ -2272,6 +2375,9 @@ window.__ModuleLoader__.load({
         const archivedSessionIds = new Set(
           Array.isArray(state?.archivedSessionIds) ? state.archivedSessionIds.map(String) : [],
         )
+        // 主视图里正开着的那条会话。工作区行的文件夹「高亮」只认它——与内置侧栏同一套判据
+        // （`.wnFoaW_folderActive` 只在 `containsCurrent` 时挂上）。拿不到就 undefined，照旧全灰。
+        const currentId = currentSessionId(ctx)
 
         // ---- v0.10：上级行的「下面有任务在跑」汇总 ----
         // 一次算清每一层：按天 → 任务组；工作区 → 工作区组；两边 → 顶部「项目」。
@@ -2703,7 +2809,12 @@ window.__ModuleLoader__.load({
                   className: 'tsb-row-main',
                   type: 'button',
                   title: `${item.title}\n${item.id}`,
-                  onClick: () => openSession(item.id),
+                  onClick: () => {
+                    // 点开一条结果 = 选完了：先收起搜索（清词 + 收框），再打开会话——
+                    // 否则侧栏会一直停在结果页，人还得自己找地方关掉它（内置也是先收再开）。
+                    closeSearch()
+                    openSession(item.id)
+                  },
                 },
                 h('span', {
                   className: 'tsb-dot',
@@ -2808,6 +2919,16 @@ window.__ModuleLoader__.load({
           // 工作区自己的会话也要跟着「归档过滤」走（与内置侧栏一致）：
           // 隐藏已归档时不列归档的，仅已归档时只列归档的。
           const members = workspaceMembers(workspace)
+          // 文件夹染蓝的两种情形，合起来就是内置侧栏那枚 `.folderActive`：
+          //   1. **打开着的**（`isOpen`）——「打开文件夹」本身就该是蓝的，这也是这一版要补的样子；
+          //   2. **收着、但里面正开着会话**（`containsCurrent`）——内置侧栏的祖先工作区折起来
+          //      也照样高亮（README：ancestor folder icons stay highlighted），别让「我在哪」消失。
+          const containsCurrent =
+            currentId !== undefined &&
+            (Array.isArray(workspace?.sessionIds) ? workspace.sessionIds : []).some(
+              (sessionId) => String(sessionId) === currentId,
+            )
+          const folderActive = isOpen || containsCurrent
           const className = ['tsb-row', isOpen ? 'is-open' : '', isMenuOpen ? 'is-menu-open' : '']
             .filter(Boolean)
             .join(' ')
@@ -2832,7 +2953,12 @@ window.__ModuleLoader__.load({
                 },
                 // 文件夹与折叠三角占同一格：平时是文件夹，鼠标进来才换成三角（与内置侧栏一致），
                 // 展开时换成打开的文件夹。两个同时画是重复的「可展开」语义。
-                h('span', { className: 'tsb-folder' }, folderIcon({ open: isOpen, size: 16 })),
+                // 打开着的 / 当前会话所在的那个 = 内置的 `.folderActive` 蓝色（见上面的 folderActive）。
+                h(
+                  'span',
+                  { className: folderActive ? 'tsb-folder is-active' : 'tsb-folder' },
+                  folderIcon({ open: isOpen, size: 16 }),
+                ),
                 h('span', { className: isOpen ? 'tsb-chev is-open' : 'tsb-chev' }, triangleIcon()),
                 h('span', { className: 'tsb-title' }, workspace.title),
                 // 工作区里只要还有任务在跑 / 等回话，行尾就亮一个标记——收起时也看得见。
@@ -3005,106 +3131,121 @@ window.__ModuleLoader__.load({
         return h(
           'div',
           { className: 'tsb-root', 'data-task-folders': REGION_ID },
+          // 常驻头：标题 + 展开时的搜索框（照内置侧栏的 sectionHeader，不参与滚动）。
           h(
             'div',
-            { className: 'tsb-caption' },
-            folderIcon({ size: 14, className: 'tsb-caption-icon' }),
-            h('span', null, t('project')),
-            // 最顶上这一层也汇总：任务组与工作区组都折起来时，至少这里还亮着。
-            renderActiveMark(allActive, 'caption-active'),
-            // 标题右侧：搜索（Ctrl/⌘+K）与视图选项（归档过滤三档）——内置侧栏这两样都在这一带。
+            { className: 'tsb-top', ref: searchTop },
             h(
               'div',
-              { className: 'tsb-header-actions' },
+              { className: 'tsb-caption' },
+              folderIcon({ size: 14, className: 'tsb-caption-icon' }),
+              h('span', null, t('project')),
+              // 最顶上这一层也汇总：任务组与工作区组都折起来时，至少这里还亮着。
+              renderActiveMark(allActive, 'caption-active'),
+              // 标题右侧：搜索（Ctrl/⌘+K）与视图选项（归档过滤三档）——内置侧栏这两样都在这一带。
               h(
-                'button',
-                {
-                  className: 'tsb-icon',
-                  type: 'button',
-                  title: t('search'),
-                  onClick: () => {
-                    setSearchOpen(true)
-                    setTimeout(() => searchInput.current?.focus?.(), 0)
+                'div',
+                { className: 'tsb-header-actions' },
+                h(
+                  'button',
+                  {
+                    // 展开时这颗放大镜自己也是「收起」按钮，亮一下底告诉人它正开着。
+                    className: searchOpen ? 'tsb-icon is-active' : 'tsb-icon',
+                    type: 'button',
+                    title: searchOpen ? t('searchClose') : t('search'),
+                    'aria-label': searchOpen ? t('searchClose') : t('search'),
+                    'aria-expanded': searchOpen,
+                    onClick: () => {
+                      // 开 / 关同一个入口：开着就收（清词 + 收框），关着才铺开并抢焦点。
+                      // 内置侧栏的开关在框尾那颗 ✕ 上，这里两个都给，第一下点哪儿都能关。
+                      if (searchOpen) {
+                        closeSearch()
+                        return
+                      }
+                      setSearchOpen(true)
+                      setTimeout(() => searchInput.current?.focus?.(), 0)
+                    },
                   },
-                },
-                searchIcon(14),
-              ),
-              h(
-                'button',
-                {
-                  className: 'tsb-icon',
-                  type: 'button',
-                  title: t('viewOptions'),
-                  onClick: (event) => {
-                    event.stopPropagation()
-                    openMenu(menu !== null && menu.kind === 'view' ? null : { kind: 'view' }, event.currentTarget)
+                  searchIcon(14),
+                ),
+                h(
+                  'button',
+                  {
+                    className: 'tsb-icon',
+                    type: 'button',
+                    title: t('viewOptions'),
+                    onClick: (event) => {
+                      event.stopPropagation()
+                      openMenu(menu !== null && menu.kind === 'view' ? null : { kind: 'view' }, event.currentTarget)
+                    },
                   },
-                },
-                ellipsisIcon(14),
+                  ellipsisIcon(14),
+                ),
+                menu !== null && menu.kind === 'view' ? renderMenu(viewMenuItems, 'menu:view') : null,
               ),
-              menu !== null && menu.kind === 'view' ? renderMenu(viewMenuItems, 'menu:view') : null,
             ),
+
+            searchOpen
+              ? h(
+                  'div',
+                  { className: 'tsb-search', key: 'search-box' },
+                  searchIcon(12),
+                  h('input', {
+                    className: 'tsb-search-input',
+                    type: 'text',
+                    value: query,
+                    placeholder: t('searchPlaceholder'),
+                    ref: searchInput,
+                    onChange: (event) => setQuery(event.target.value),
+                    onKeyDown: (event) => {
+                      if (event.key === 'Escape') closeSearch()
+                    },
+                  }),
+                  // 框尾那颗 ✕ **常显**（内置侧栏的 clearButton 也是展开就有）：
+                  // 有词时它清词 + 收框，空词时它照样把框收掉——这就是「关得掉」的那一下。
+                  h(
+                    'button',
+                    {
+                      className: 'tsb-icon tsb-search-close',
+                      type: 'button',
+                      // 有词时说「清除」，空词时说「收起」——同一个动作，两种说法各自贴切。
+                      title: query !== '' ? t('searchClear') : t('searchClose'),
+                      'aria-label': query !== '' ? t('searchClear') : t('searchClose'),
+                      onClick: closeSearch,
+                    },
+                    '✕',
+                  ),
+                )
+              : null,
           ),
 
-          searchOpen
-            ? h(
-                'div',
-                { className: 'tsb-search', key: 'search-box' },
-                searchIcon(12),
-                h('input', {
-                  className: 'tsb-search-input',
-                  type: 'text',
-                  value: query,
-                  placeholder: t('searchPlaceholder'),
-                  ref: searchInput,
-                  onChange: (event) => setQuery(event.target.value),
-                  onKeyDown: (event) => {
-                    if (event.key === 'Escape') {
-                      setQuery('')
-                      setSearchOpen(false)
-                    }
-                  },
-                }),
-                query !== ''
-                  ? h(
-                      'button',
-                      {
-                        className: 'tsb-icon',
-                        type: 'button',
-                        title: t('searchClear'),
-                        onClick: () => {
-                          setQuery('')
-                          setTimeout(() => searchInput.current?.focus?.(), 0)
-                        },
-                      },
-                      '✕',
-                    )
-                  : null,
-              )
-            : null,
+          // 唯一的一层滚动：任务按天 / 工作区 / 归档组 / 提示都在这里滚。
+          h(
+            'div',
+            { className: 'tsb-scroll' },
+            searching ? renderSearchResults() : [tasksGroup, tasksOpen ? h('div', { className: 'tsb-rows', key: 'tasks-rows' }, renderTaskDays()) : null],
 
-          searching ? renderSearchResults() : [tasksGroup, tasksOpen ? h('div', { className: 'tsb-rows', key: 'tasks-rows' }, renderTaskDays()) : null],
+            searching
+              ? null
+              : [
+                  workspacesGroup,
+                  workspacesOpen
+                    ? plainWorkspaces.length === 0
+                      ? h('div', { className: 'tsb-notice', key: 'ws-empty' }, t('noWorkspace'))
+                      : h(
+                          'div',
+                          { className: 'tsb-rows', key: 'ws-rows' },
+                          plainWorkspaces.map((workspace) => renderWorkspace(workspace)),
+                        )
+                    : null,
+                  renderArchivedProjects(),
+                ],
 
-          searching
-            ? null
-            : [
-                workspacesGroup,
-                workspacesOpen
-                  ? plainWorkspaces.length === 0
-                    ? h('div', { className: 'tsb-notice', key: 'ws-empty' }, t('noWorkspace'))
-                    : h(
-                        'div',
-                        { className: 'tsb-rows', key: 'ws-rows' },
-                        plainWorkspaces.map((workspace) => renderWorkspace(workspace)),
-                      )
-                  : null,
-                renderArchivedProjects(),
-              ],
-
-          error !== '' ? h('div', { className: 'tsb-notice is-error' }, error) : null,
-          notice !== '' ? h('div', { className: 'tsb-notice' }, notice) : null,
-          staleHost ? h('div', { className: 'tsb-notice is-error' }, t('errorStaleHost')) : null,
-          canCreate === false ? h('div', { className: 'tsb-notice' }, t('canNotCreate')) : null,
+            error !== '' ? h('div', { className: 'tsb-notice is-error' }, error) : null,
+            notice !== '' ? h('div', { className: 'tsb-notice' }, notice) : null,
+            staleHost ? h('div', { className: 'tsb-notice is-error' }, t('errorStaleHost')) : null,
+            canCreate === false ? h('div', { className: 'tsb-notice' }, t('canNotCreate')) : null,
+          ),
         )
       }
     }

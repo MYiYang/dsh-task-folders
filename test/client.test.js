@@ -82,6 +82,22 @@ function collectByType(node, type, out = []) {
   return out
 }
 
+/**
+ * 一个 span 是不是工作区行的「文件夹格」。
+ * 展开 / 装着当前会话时会多挂一个 `is-active`（蓝色），所以不能只认 `=== 'tsb-folder'`。
+ * @param {object} node - 假元素。
+ * @returns {boolean} 是不是文件夹格。
+ */
+function isFolderSpan(node) {
+  return (
+    node !== null &&
+    typeof node === 'object' &&
+    node.type === 'span' &&
+    typeof node.props?.className === 'string' &&
+    /^tsb-folder(\s|$)/.test(node.props.className)
+  )
+}
+
 /** 本地时区的 YYYY-MM-DD（与插件的 dayKey 同一算法）。 */
 function dayKey(time) {
   const date = new Date(time)
@@ -225,6 +241,15 @@ async function bootstrap(options = {}) {
   const connected = []
   const opened = []
   const archiveCalls = []
+  // `retainedBy.mainView` 是内置侧栏认「当前这条会话」的字段：只给 options.current 那一条置 1，
+  // 其余置 0，`ids` 顺序照旧。没传 options.current 时没有任何一条是「当前」。
+  const current = typeof options.current === 'string' ? options.current : undefined
+  const summaries = Object.fromEntries(
+    Object.entries(SESSION_SUMMARIES).map(([id, row]) => [
+      id,
+      { ...row, id, retainedBy: { mainView: id === current ? 1 : 0 } },
+    ]),
+  )
   const ctx = {
     effect(fn) {
       const disposer = fn()
@@ -234,7 +259,7 @@ async function bootstrap(options = {}) {
       if (name === 'sessions') {
         return {
           list: {
-            getSnapshot: () => ({ ids: Object.keys(SESSION_SUMMARIES), byId: SESSION_SUMMARIES, phase: 'ready' }),
+            getSnapshot: () => ({ ids: Object.keys(summaries), byId: summaries, phase: 'ready' }),
             subscribe: () => () => {},
           },
           create: async (opts) => {
@@ -337,9 +362,10 @@ const client = await bootstrap()
  * @param {object} state - Host 状态。
  * @param {{wide?: boolean, expandSidebar?: Function}} [props] - 区域 props。
  * @param {Record<number, unknown>} [extra] - 覆盖其它 useState 初值（按 hook 序号）。
+ * @param {Array<[number, unknown]>} [calls] - 传进来就记下每次 setState（假 React 不重渲染，只记意图）。
  * @returns {object} React 元素树。
  */
-function renderFrom(bundle, state, props = { wide: true }, extra = {}) {
+function renderFrom(bundle, state, props = { wide: true }, extra = {}, calls) {
   const Component = bundle.slots.find((slot) => slot.definition.name === 'sidebar.workspaces').Component
   const React = bundle.react
   const originalUseState = React.useState
@@ -349,7 +375,11 @@ function renderFrom(bundle, state, props = { wide: true }, extra = {}) {
     const slot = hookIndex
     hookIndex += 1
     const value = slot in fixture ? fixture[slot] : typeof initial === 'function' ? initial() : initial
-    return [value, () => {}]
+    const setter = (next) => {
+      if (!Array.isArray(calls)) return
+      calls.push([slot, typeof next === 'function' ? next(value) : next])
+    }
+    return [value, setter]
   }
   try {
     let tree = Component(props)
@@ -369,10 +399,11 @@ function renderFrom(bundle, state, props = { wide: true }, extra = {}) {
  * @param {object} state - Host 状态。
  * @param {{wide?: boolean, expandSidebar?: Function}} [props] - 区域 props。
  * @param {Record<number, unknown>} [extra] - 覆盖其它 useState 初值（按 hook 序号）。
+ * @param {Array<[number, unknown]>} [calls] - 传进来就记下每次 setState（按 hook 序号）。
  * @returns {object} React 元素树。
  */
-function render(state, props, extra) {
-  return renderFrom(client, state, props, extra)
+function render(state, props, extra, calls) {
+  return renderFrom(client, state, props, extra, calls)
 }
 
 test('注册三个槽：sidebar.workspaces（priority -1 遮盖）、settings.section「技能」页、对话流「编辑重发」', () => {
@@ -418,6 +449,11 @@ test('注入 zh / en 词典与令牌化样式表（含状态点与按天分隔�
   assert.match(css, /var\(--dsw-alias-label-primary\)/, '颜色必须走 DSH 令牌')
   assert.match(css, /\.tsb-day/, '按天分隔的小标题')
   assert.match(css, /\.tsb-folder\b/, '工作区行的文件夹图标')
+  assert.match(
+    css,
+    /\.tsb-row \.tsb-folder\.is-active \{[^}]*--dsw-alias-state-business-primary/,
+    '打开着的文件夹用内置 folderActive 同款蓝色（business-primary）',
+  )
   assert.match(css, /\.tsb-caption-icon\b/, '「项目」标题的文件夹图标')
   // 缩进台阶：组标题往左顶，子项右移一格，层级才看得出来
   assert.match(css, /\.tsb-group \{[^}]*padding: 0 8px 0 2px/, '任务 / 工作区组标题左对齐到最外层')
@@ -441,14 +477,70 @@ test('「项目」标题与工作区行都带文件夹图标（DSH 图标集）'
   assert.equal(caption.children[0].props.className, 'tsb-caption-icon')
   assert.match(collectText(caption).join(''), /^项目/, '图标不占文本（后面可以跟活动数量）')
 
-  const folders = collectByType(tree, 'span').filter((node) => node.props.className === 'tsb-folder')
+  const folders = collectByType(tree, 'span').filter(isFolderSpan)
   assert.equal(folders.length, 1, '每个工作区行一个文件夹图标')
   assert.equal(folders[0].children[0].type, 'IconFolderCloseRegular', '收着的工作区是闭合文件夹')
 
   // 展开后换成打开的文件夹（和 DSH 自己一样）：expanded 是第 7 个 useState（序号 6）
   const expandedTree = render(fixtureState(), { wide: true }, { 6: new Set(['ws:w-plain']) })
-  const expandedFolders = collectByType(expandedTree, 'span').filter((node) => node.props.className === 'tsb-folder')
+  const expandedFolders = collectByType(expandedTree, 'span').filter(isFolderSpan)
   assert.equal(expandedFolders[0].children[0].type, 'IconFolderOpenRegular', '展开的工作区是打开文件夹')
+})
+
+test('打开着的文件夹染蓝：内置 `.folderActive` 的 business-primary', async () => {
+  // 1) 收着、也没有「当前会话」→ 不挂高亮
+  const idle = collectByType(render(fixtureState()), 'span').filter(isFolderSpan)
+  assert.equal(idle[0].props.className, 'tsb-folder', '收着且不是当前项目：不挂 is-active')
+
+  // 2) 展开 = 打开文件夹 → 蓝（这一版补的就是这个；内置是 .wnFoaW_folderActive）
+  const open = collectByType(render(fixtureState(), { wide: true }, { 6: new Set(['ws:w-plain']) }), 'span').filter(
+    isFolderSpan,
+  )
+  assert.equal(open[0].props.className, 'tsb-folder is-active', '打开着的文件夹挂 is-active')
+  assert.equal(open[0].children[0].type, 'IconFolderOpenRegular', '图标同样是打开的那个')
+
+  // 3) 收着、但里面正开着会话 → 也亮（内置：祖先工作区折起来照样高亮）
+  const activeClient = await bootstrap({ current: 'session-cccc3333', moduleUrl: '../client.js?current-project' })
+  activeClient.module.apply(activeClient.ctx)
+  const collapsed = collectByType(renderFrom(activeClient, fixtureState()), 'span').filter(isFolderSpan)
+  assert.equal(collapsed[0].props.className, 'tsb-folder is-active', '当前会话所在的工作区收着也高亮')
+  assert.equal(collapsed[0].children[0].type, 'IconFolderCloseRegular', '没展开就还是闭合图标')
+
+  // 4) 当前会话属于别处（任务区）→ 这个工作区不该亮
+  const otherClient = await bootstrap({ current: 'session-aaaa1111', moduleUrl: '../client.js?other-project' })
+  otherClient.module.apply(otherClient.ctx)
+  const other = collectByType(renderFrom(otherClient, fixtureState()), 'span').filter(isFolderSpan)
+  assert.equal(other[0].props.className, 'tsb-folder', '别的会话不该点亮这个工作区')
+})
+
+test('顶部「项目」行在滚动区之外：.tsb-top 常驻，列表自己滚', () => {
+  const tree = render(fixtureState())
+  const root = collectByType(tree, 'div').find((node) => node.props.className === 'tsb-root')
+  assert.ok(root, '侧栏根容器')
+
+  const kids = root.children.filter((node) => node !== null && typeof node === 'object' && node.type === 'div')
+  assert.deepEqual(
+    kids.map((node) => node.props.className),
+    ['tsb-top', 'tsb-scroll'],
+    '根下两段：常驻头在前，滚动区在后',
+  )
+
+  const [top, scroll] = kids
+  const caption = collectByType(top, 'div').find((node) => node.props.className === 'tsb-caption')
+  assert.ok(caption, '「项目」行归 .tsb-top 管，不随列表滚')
+  assert.equal(
+    collectByType(scroll, 'div').filter((node) => node.props.className === 'tsb-caption').length,
+    0,
+    '滚动区里不该再有这一行',
+  )
+
+  // 搜索框同样常驻：搜索时输入框不能被结果滚走（searchOpen 是第 9 个 useState，序号 8）
+  const searchingTree = render(fixtureState(), undefined, { 8: true })
+  const searchingTop = collectByType(searchingTree, 'div').find((node) => node.props.className === 'tsb-top')
+  assert.ok(
+    collectByType(searchingTop, 'div').some((node) => node.props.className === 'tsb-search'),
+    '搜索框也在常驻头里',
+  )
 })
 
 test('折叠指示用 DSH 图标集的细 chevron（不再是 9px 的文字 ▸），与文件夹共用一格', () => {
@@ -873,6 +965,71 @@ test('「项目」标题右侧有搜索入口（Ctrl/⌘+K 同一个入口），
   assert.equal(input.props.value, '')
 })
 
+// ---- v0.11.1：搜索框要关得掉（原来点开就挂在那儿，空词时连颗 ✕ 都没有） ----
+
+test('搜索框开着时框尾常显 ✕：空词状态下点了也清词 + 收起', () => {
+  const calls = []
+  const tree = render(fixtureState(), { wide: true }, { 8: true }, calls)
+  const box = collectByType(tree, 'div').find((node) => node.props.className === 'tsb-search')
+  assert.ok(box, '搜索框开着')
+
+  const close = collectByType(box, 'button').find((node) => node.props.className.includes('tsb-search-close'))
+  assert.ok(close, 'query 为空时也必须画那颗 ✕（原来只在 query !== "" 时画）')
+  assert.equal(close.children[0], '✕')
+  assert.equal(close.props.title, '收起搜索', '空词时它就是「收起」')
+
+  assert.equal(typeof close.props.onClick, 'function')
+  close.props.onClick()
+  // query 是第 8 个 useState（序号 7），searchOpen 是第 9 个（序号 8）
+  assert.deepEqual(calls, [[7, ''], [8, false]], '清词与收框一起做——只收框会留下结果，只清词会留下空框')
+
+  // 有词时同一颗按钮照样是「清词 + 收框」，不是只清词把人留在框里
+  const typedCalls = []
+  const typed = render(fixtureState(), { wide: true }, { 7: '昨天', 8: true }, typedCalls)
+  const typedClose = collectByType(typed, 'button').find((node) => node.props.className.includes('tsb-search-close'))
+  assert.equal(typedClose.props.title, '清除搜索', '有词时说「清除」')
+  typedClose.props.onClick()
+  assert.deepEqual(typedCalls, [[7, ''], [8, false]])
+})
+
+test('放大镜是开 / 关同一个入口：开着再点一下就收起', () => {
+  const openCalls = []
+  const opened = render(fixtureState(), { wide: true }, { 8: true }, openCalls)
+  const searchButton = collectByType(opened, 'button').find((node) => node.props['aria-expanded'] === true)
+  assert.ok(searchButton, '开着时放大镜带 aria-expanded')
+  assert.equal(searchButton.props.className, 'tsb-icon is-active', '开着时常亮（它此刻就是「收起」）')
+  assert.equal(searchButton.props.title, '收起搜索')
+
+  searchButton.props.onClick()
+  assert.deepEqual(openCalls, [[7, ''], [8, false]], '再点一次走同一个收起动作：清词 + 收框')
+
+  const closedCalls = []
+  const closed = render(fixtureState(), { wide: true }, undefined, closedCalls)
+  const button = collectByType(closed, 'button').find((node) => node.props.title === '搜索会话')
+  assert.equal(button.props.className, 'tsb-icon', '关着时不亮')
+  button.props.onClick()
+  assert.deepEqual(closedCalls, [[8, true]], '关着时点开')
+})
+
+test('点开一条搜索结果：先收起搜索，再打开会话', () => {
+  const calls = []
+  const tree = render(fixtureState(), { wide: true }, { 7: '昨天', 8: true }, calls)
+  const result = collectByType(tree, 'div').find((node) => node.props.className === 'tsb-result')
+  assert.ok(result, '「昨天」命中了「昨天那条」')
+
+  const main = collectByType(result, 'button')[0]
+  client.opened.length = 0
+  main.props.onClick()
+  assert.deepEqual(calls, [[7, ''], [8, false]], '选完就把框收掉，侧栏回到任务列表')
+  assert.deepEqual(client.opened, ['session-bbbb2222'], '会话照常打开')
+})
+
+test('收起搜索的三处视觉线索也走样式表：常亮的放大镜、常显的 ✕', () => {
+  const css = client.styles[0].textContent
+  assert.match(css, /\.tsb-icon\.is-active \{[^}]*--dsw-alias-interactive-bg-hover/, '开着时常亮用 hover 同一层底色')
+  assert.match(css, /\.tsb-search-close \{[^}]*flex: 0 0 auto/, '✕ 常显，不被输入框挤掉')
+})
+
 test('搜索：按标题本地命中，结果里带所属工作区', () => {
   const tree = render(fixtureState(), { wide: true }, { 7: '昨天' })
   const text = collectText(tree).join(' | ')
@@ -1162,6 +1319,12 @@ test('样式：根容器铺满侧栏区域、行不被压扁、折叠按钮照�
 
   assert.match(css, /\.tsb-root \{[^}]*flex: 1 1 auto/, '铺满 DSH 给的区域，别只占内容那么高')
   assert.match(css, /\.tsb-root \{[^}]*min-height: 0/, '保住自己的滚动而不是撑破侧栏')
+  // 滚动只归 .tsb-scroll：根不再滚，顶部「项目」行才留得住（照内置侧栏 sectionHeader / list 的几何）
+  assert.match(css, /\.tsb-root \{[^}]*overflow: hidden/, '根不滚，滚动交给内层')
+  assert.match(css, /\.tsb-top \{[^}]*flex: 0 0 auto/, '常驻头不许被压扁、不参与滚动')
+  assert.match(css, /\.tsb-scroll \{[^}]*flex: 1 1 auto/, '滚动区吃满剩余高度')
+  assert.match(css, /\.tsb-scroll \{[^}]*min-height: 0/, '滚动区自己有下限，别撑破侧栏')
+  assert.match(css, /\.tsb-scroll \{[^}]*overflow-y: auto/, '列表自己滚')
   for (const selector of ['.tsb-caption', '.tsb-group', '.tsb-row', '.tsb-day', '.tsb-notice']) {
     assert.match(css, new RegExp(`\\${selector} \\{[^}]*flex: 0 0 auto`), `${selector} 不许被压扁`)
   }
