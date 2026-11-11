@@ -216,8 +216,9 @@ DSH 的会话只有归档，没有删除——`workspaceRegistry` 里没有 `del
 
 删除的规矩：
 
-- **点「删除会话…」不是立刻删**：菜单原地换成一句「日志会移进回收站，侧栏里立刻消失」
-  ＋「取消 / 删除」两颗按钮，再点一次才动手；
+- **点「删除会话…」不是立刻删**：菜单照常收起，顶部常驻头里多一条「删除这条会话？」＋
+  「日志会移进回收站，侧栏里立刻消失。」＋「取消 / 删除」两颗按钮，再点一次才动手
+  （v0.11.4 起问句从「菜单里的就地确认浮层」改成这条顶部提示条，见下节）；
 - **默认进回收站**：`$DSH_HOME/task-folders/trash/<YYYYMMDD-HHmmss>-<会话>/`，里面按
   `session/`、`archive/`、`projection/` 分好，另有一份 `manifest.json` 写着原本在哪——
   删错了照着 `from` 搬回去即可（DSH 重启后才会重新看见这条会话）；
@@ -553,6 +554,82 @@ v0.11.2 把这个样子补上，判据用同一份：
 它得压过前一条 `.tsb-row.is-open .tsb-folder { color: var(--dsw-alias-label-secondary) }`，
 同样是 0,3,0，靠源码顺序赢。收起来的行不必额外处理——那条规则只认 `is-open`。
 
+## v0.11.3：会话按「最近活跃」排，不按登记顺序
+
+官人的原话是「新会话排序应该在上面」。现象是：项目里新建的会话确实在最前，可一条老会话
+被重新打开、跑完一轮之后，它仍旧埋在中间——明明刚聊过，翻起来却要往下找。
+
+病根在**两套顺序被混成了一套**。DSH 的工作区成员表 `sessionIds` 是**登记顺序**，
+`WorkspaceEntity.attachSession` 是往数组头部 `unshift`：
+
+```js
+// dsh-workspace/lib/index.js（attachSession）
+await this.mutate((record) => record.sessionIds.includes(sessionId) ? record : {
+  ...record,
+  sessionIds: [sessionId, ...record.sessionIds]   // ← 只在「新登记」时置顶
+});
+```
+
+也就是说，`sessionIds` 只回答「谁属于这个项目」，从不回答「谁最近活跃」——重新打开一条
+老会话不改这张表。而内置侧栏画成员时用的是另一套：`ui-workspace` 的 `orderByRecency`，
+按会话快照的 `updatedAt` 倒序：
+
+```js
+function orderByRecency(sessionIds, summaries) {
+  return sessionIds.flatMap((id) => {
+    const summary = summaries[id];
+    return summary === void 0 ? [] : [{ id, rank: summary.updatedAt }];
+  }).sort((a, b) => {
+    if (a.rank !== b.rank) return b.rank - a.rank;
+    return a.id < b.id ? -1 : 1;                      // ← 同刻时按 id，保证稳定
+  }).map((member) => member.id);
+}
+```
+
+插件这边（`renderWorkspace`）一直把 `sessionIds` 当展示顺序直接用，于是「登记顺序」冒充了
+「活跃顺序」。实测这台机器上 `dsh-task-folders` 这个项目：登记顺序与按日志 mtime 排出来的
+真实活跃顺序，22 条里有 16 条位置不同（`60721a` 登记在第 11 位、实际活跃第 8 位，
+`1a9f4a` 登记在最后、实际活跃第 12 位）。
+
+修法就是照内置补一层排序，两个地方都补：
+
+| 位置 | 改法 |
+| --- | --- |
+| 工作区成员（`workspaceMembers`） | 过滤完归档/隐藏后过一遍 `orderByRecency` |
+| 搜索结果（`searchResults`） | 合并完本地与 Host 命中后过一遍同一函数 |
+
+口径与内置逐字对齐：`updatedAt` 大的在前；`updatedAt` 相同或拿不到（都记 0）时按 id
+字符串比——这样每次渲染顺序确定，不会因为两条会话同一时刻更新而来回抖动。
+「展开其余 N 个会话」的取舍也跟着这层顺序走，所以铺出来的 10 条就是最近活跃的 10 条。
+
+为什么不在 Host 侧改：`attachSession` 的 unshift 是 DSH 的持久登记语义，插件没有理由
+去改它（改了也只是一次性重排，下次重新打开老会话又会错）。展示顺序本来就该由画的人定——
+内置侧栏也是这么干的。
+
+## v0.11.4：删除会话的确认改成顶部提示条（不再弹浮层）
+
+官人的原话是「删除会话的提示直接给个顶部提示就好了，现在的提示比较突兀」。
+
+原来的问法确实突兀：点「删除会话…」之后，**菜单原地换成一个 214px 的确认块**——标题、
+一句说明、「取消 / 删除」两颗按钮（其中一颗还是红的），浮在行上、把菜单顶掉。人本来正在
+列表里看东西，这一下等于被从行上拽住。删成功之后的反馈也不好：它就画在列表最底下那行
+灰字里，列表一长根本滚不到眼前，而且会在列表中间突然冒出来一行、把下面的内容往下顶。
+
+现在两处都收进同一条**顶部提示条**（`.tsb-flash`，画在常驻头 `.tsb-top` 里，不随列表滚）：
+
+| 时机 | 画什么 |
+| --- | --- |
+| 点「删除会话…」 | 「删除这条会话？」＋「日志会移进回收站，侧栏里立刻消失。」＋「取消 / 删除」 |
+| 删成功 | 「会话已删除（在回收站里可找回）」——success 令牌，4 秒后自己消失 |
+| 复制 Session ID 成功 / 失败 | 同一条，success / error 令牌（原来也走这条，只是画在列表底下） |
+
+撤掉的路径有三条：点「取消」、按 Esc、或者去点别处（开新菜单 / 打开会话都会先把它收掉）。
+删除本身**仍旧要二次确认**——它是这个插件里唯一会动文件的动作，回收站只是兜底，不该点一下
+就执行；变的只是问法：从「浮在行上的确认块」换成「钉在顶部的一行问句」。
+
+顺手清掉的还有 `keepMenu`（「留着菜单下一步用」的那个分支）和 `.tsb-confirm*` 一整套样式：
+菜单项现在点完就收，没有例外。
+
 ## 顺带一提：为什么「项目归档」不写进工作区登记
 
 `workspaceRegistry` 是 DSH 的持久登记，删一次就真的没了（虽然目录和日志还在）。
@@ -666,7 +743,7 @@ Host 只负责「哪些会话属于任务、归在哪一天」。
 node --test --test-isolation=none test/paths.test.js test/sessions.test.js test/scan.test.js test/archive.test.js test/session-files.test.js test/state.test.js test/project-archive.test.js test/skills.test.js test/route.test.js test/client.test.js test/edit-resend.test.js
 ```
 
-148 个用例，覆盖：本地时区日期、目录名清洗、任务判定（cwd 在任务区 / 普通工作区 / 子代理 / 注册表缺席）、
+159 个用例，覆盖：本地时区日期、目录名清洗、任务判定（cwd 在任务区 / 普通工作区 / 子代理 / 注册表缺席）、
 按天归档扫描（倒序、坏 `session.json`、非日期目录不混入、新旧两种布局）、DSH 格式写入
 （多帧 zstd、seq 去重、崩溃后从日志恢复进度、大 payload）、删除落盘（按分组找日志、三处目标、
 回收站与 manifest、`trash:false` 直删、越界目录护栏、30 天清理、重复删除幂等、日志搬不动就整单放弃）、
@@ -679,8 +756,8 @@ node --test --test-isolation=none test/paths.test.js test/sessions.test.js test/
 状态点、文件夹图标（DSH 图标集 + 拿不到时的自带 SVG 兜底）、令牌化样式表、窄栏降级、
 上级「下面有任务在跑」标记（任务组 / 按天 / 工作区组 / 工作区行 / 顶部「项目」、按 id 去重、
 只在跑着或等回话时出现、折叠与窄条照旧、状态变化后重画、胶囊与令牌）、
-搜索入口与本地/全文结果、归档过滤三档、会话行「…」归档/取消归档、删除的二次确认与 deleteSession、
-项目归档与恢复、归档徽标）、
+搜索入口与本地/全文结果、归档过滤三档、会话行「…」归档/取消归档、删除的二次确认（顶部提示条）与 deleteSession、
+项目归档与恢复、归档徽标、顶部提示条（删除确认 / 删成功 / 复制反馈）、按最近活跃倒序（工作区成员与搜索结果））、
 对话流「编辑重发」（停止 / 失败 / 进程中断三种才给入口、跑完与撞上限不给、只认最新一轮、
 只认人工 user 消息、按回合找流节点、找不到就不画、点铅笔就地进入编辑并预填原文、
 编辑时打 `data-tsr-editing` 标记 / 收起清掉、重发 = setDraft + submit、空白不可发、

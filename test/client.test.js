@@ -1020,7 +1020,20 @@ test('点开一条搜索结果：先收起搜索，再打开会话', () => {
   const main = collectByType(result, 'button')[0]
   client.opened.length = 0
   main.props.onClick()
-  assert.deepEqual(calls, [[7, ''], [8, false]], '选完就把框收掉，侧栏回到任务列表')
+  assert.deepEqual(calls, [[7, ''], [8, false], [13, null]], '选完就把框收掉，侧栏回到任务列表')
+  assert.deepEqual(client.opened, ['session-bbbb2222'], '会话照常打开')
+})
+
+test('点开别处（会话行 / 搜索结果）会顺手撤掉顶部那条删除问句', () => {
+  // 顶部提示条 notice 是第 14 个 useState（序号 13）：先画上问句，再点一条会话行。
+  const calls = []
+  const tree = render(fixtureState(), { wide: true }, { 13: { text: '', tone: '', confirm: 'session-aaaa1111' } }, calls)
+  const row = collectByType(tree, 'div').find((node) => node.props.className === 'tsb-row')
+  const openButton = collectByType(row, 'button').find((node) => node.props.className === 'tsb-row-main')
+  client.opened.length = 0
+  openButton.props.onClick()
+  assert.ok(calls.some(([slot, value]) => slot === 13 && value === null), '打开会话前先把问句撤掉')
+  // 同一天里按 createdAt 倒序，所以第一行是 session-bbbb2222（fixture 里 createdAt: 2）。
   assert.deepEqual(client.opened, ['session-bbbb2222'], '会话照常打开')
 })
 
@@ -1140,6 +1153,113 @@ test('工作区自己的会话也跟着归档过滤走', () => {
   assert.match(shown, /归档的老会话/, '「全部对话」时工作区里也列出来')
 })
 
+// ---- v0.11.3：会话按「最近活跃」排，不按登记顺序 ----
+
+/**
+ * 会话行在树里的顺序（取标题文本，排除行尾计数与按钮）。
+ * @param {object} tree - 元素树。
+ * @param {string} indent - 该层会话行的缩进。
+ * @returns {string[]} 标题数组，从上到下。
+ */
+function sessionRowTitles(tree, indent) {
+  return sessionRows(tree, indent).map((row) => {
+    const main = collectByType(row, 'button').find((node) => node.props.className === 'tsb-row-main')
+    const title = collectByType(main, 'span').find((node) => node.props.className === 'tsb-title')
+    return title === undefined ? '' : String(title.children[0] ?? '')
+  })
+}
+
+test('工作区成员按最近活跃倒序，不按 DSH 登记顺序', () => {
+  // 登记顺序（attachSession 往头部 unshift）是 [旧1, 旧2, 新3]，
+  // 但「旧1」刚被重新打开过（updatedAt 最大）——它必须排到最前面。
+  const state = fixtureState()
+  state.dayGroups = []
+  state.workspaces = [
+    {
+      id: 'w-plain',
+      title: '我的项目',
+      path: 'F:\\ssdwork\\vscode\\work',
+      order: 0,
+      sessionIds: ['session-eeee5555', 'session-dddd4444', 'session-cccc3333'],
+      live: [],
+    },
+  ]
+  const tree = render(state, { wide: true }, { 6: new Set(['ws:w-plain']) })
+  assert.deepEqual(
+    sessionRowTitles(tree, '28px'),
+    // SESSION_SUMMARIES 的 updatedAt：cccc(90s前) < dddd(200s前) < eeee(300s前)
+    ['别的项目会话', '归档的老会话', '远程搜到的'],
+    '最近活跃的排最前——DSH 的成员表是登记顺序，不是展示顺序',
+  )
+})
+
+test('updatedAt 拿不到时按 id 排，顺序稳定不抖动', () => {
+  // 快照里没有这些会话（updatedAt 全为 0）：回落到 id 字典序，
+  // 与内置侧栏 orderByRecency 的同口径兜底一致。
+  const state = fixtureState()
+  state.dayGroups = []
+  state.workspaces = [
+    {
+      id: 'w-plain',
+      title: '我的项目',
+      path: 'F:\\ssdwork\\vscode\\work',
+      order: 0,
+      sessionIds: ['session-zzz', 'session-aaa', 'session-mmm'],
+      live: [],
+    },
+  ]
+  const tree = render(state, { wide: true }, { 6: new Set(['ws:w-plain']) })
+  assert.deepEqual(
+    sessionRowTitles(tree, '28px'),
+    ['新会话', '新会话', '新会话'],
+    '标题都退回「新会话」，但顺序必须稳定（id 字典序）',
+  )
+  // 直接用行首 title 属性核对 id 顺序
+  assert.deepEqual(
+    sessionRows(tree, '28px').map((row) => {
+      const main = collectByType(row, 'button').find((node) => node.props.className === 'tsb-row-main')
+      return String(main.props.title).split('\n')[1]
+    }),
+    ['session-aaa', 'session-mmm', 'session-zzz'],
+  )
+})
+
+test('搜索结果也按最近活跃倒序', () => {
+  // 三条都命中「会话」：登记顺序由 searchableSessions 的拼接顺序决定（任务区在前），
+  // 展示顺序必须按 updatedAt。
+  const state = fixtureState()
+  state.dayGroups = [
+    {
+      day: YESTERDAY,
+      sessions: [
+        { id: 'session-cccc3333', day: YESTERDAY, createdAt: 3, live: false, archived: true },
+        { id: 'session-eeee5555', day: YESTERDAY, createdAt: 5, live: false, archived: true },
+      ],
+    },
+  ]
+  state.workspaces = [
+    {
+      id: 'w-plain',
+      title: '我的项目',
+      path: 'F:\\ssdwork\\vscode\\work',
+      order: 0,
+      sessionIds: ['session-cccc3333', 'session-dddd4444'],
+      live: [],
+    },
+  ]
+  // hook 7 = query，hook 8 = searchOpen
+  const tree = render(state, { wide: true }, { 7: '的', 8: true })
+  const rows = collectByType(tree, 'div').filter((node) => node.props.className === 'tsb-result')
+  assert.equal(rows.length, 3, '三条都命中')
+  const titles = rows.map((row) => {
+    const main = collectByType(row, 'button').find((node) => node.props.className === 'tsb-row-main')
+    const title = collectByType(main, 'span').find((node) => node.props.className === 'tsb-title')
+    return String(title?.children?.[0] ?? '')
+  })
+  // updatedAt：cccc(90s前) < dddd(200s前) < eeee(300s前) → cccc 最前
+  assert.deepEqual(titles, ['别的项目会话', '归档的老会话', '远程搜到的'], '搜索结果同样按最近活跃排')
+})
+
 test('已归档项目收在底部一组：平时收起，展开能一键恢复', () => {
   const collapsed = collectText(render(fixtureWithArchives())).join(' | ')
   assert.match(collapsed, /已归档项目/)
@@ -1162,38 +1282,50 @@ test('新样式也走 DSH 令牌：搜索框、菜单、归档徽标、结果行
   assert.match(css, /\.tsb-badge/, '归档徽标')
 })
 
-// ---- v0.6：删除会话 ----
+// ---- v0.6：删除会话（v0.11.4 起二次确认改走顶部提示条）----
 
-test('会话行「…」里多一条染红的「删除会话…」，点了先换成就地确认（不直接删）', () => {
+test('会话行「…」里多一条染红的「删除会话…」，点了收起菜单 + 顶部问一句（不直接删）', () => {
+  const calls = []
   const tree = render(
     fixtureState(),
     { wide: true },
     { 10: { kind: 'session', id: 'session-aaaa1111', sidebarArchived: false } },
+    calls,
   )
   const menu = collectByType(tree, 'div').find((node) => node.props.className === 'tsb-menu')
   const item = collectByType(menu, 'button').find((button) => collectText(button).join('').includes('删除会话'))
   assert.ok(item, '菜单里有删除会话')
   assert.match(item.props.className, /is-danger/, '破坏性操作用 error 令牌染色')
 
-  // 点它只是换一步确认：这一下不该发出任何 Host 请求。
+  // 点它只是收起菜单、把问句挪到顶部：这一下不该发出任何 Host 请求，也不该再留着菜单。
   client.hostCalls.length = 0
   item.props.onClick()
   assert.deepEqual(client.hostCalls, [], '第一次点击不删')
+  assert.deepEqual(
+    calls.filter(([slot]) => slot === 10),
+    [[10, null]],
+    '菜单照常收起（不再原地换成确认浮层）',
+  )
+  assert.deepEqual(
+    calls.filter(([slot]) => slot === 13),
+    [[13, { text: '', tone: '', confirm: 'session-aaaa1111' }]],
+    '问句画进顶部提示条（notice 是第 14 个 useState，序号 13）',
+  )
 })
 
-test('删除确认块：说清后果，「删除」才发 Host 的 deleteSession', async () => {
+test('删除确认走顶部提示条：说清后果，「删除」才发 Host 的 deleteSession', async () => {
   const tree = render(
     fixtureState(),
     { wide: true },
-    { 10: { kind: 'session', id: 'session-aaaa1111', sidebarArchived: false, confirm: 'delete' } },
+    { 13: { text: '', tone: '', confirm: 'session-aaaa1111' } },
   )
-  const dialog = collectByType(tree, 'div').find((node) => node.props.className === 'tsb-menu tsb-confirm')
-  assert.ok(dialog, '菜单原地换成确认块')
-  const text = collectText(dialog).join(' | ')
+  const flash = collectByType(tree, 'div').find((node) => node.props.className === 'tsb-flash is-confirm')
+  assert.ok(flash, '顶部提示条换成确认态')
+  const text = collectText(flash).join(' | ')
   assert.match(text, /删除这条会话？/)
   assert.match(text, /回收站/, '把「能找回来」说清楚')
 
-  const buttons = collectByType(dialog, 'button')
+  const buttons = collectByType(flash, 'button')
   assert.deepEqual(
     buttons.map((button) => collectText(button).join('')),
     ['取消', '删除'],
@@ -1215,12 +1347,29 @@ test('删除确认块：说清后果，「删除」才发 Host 的 deleteSession
   assert.ok(client.hostCalls.includes('deleteSession'), `走 Host 的 deleteSession：${client.hostCalls.join(',')}`)
 })
 
-test('删除相关的样式：危险项、确认块、按钮都走 DSH 令牌', () => {
+test('顶部提示条画在常驻头里：不随列表滚，也不在列表中间顶出一行', () => {
+  const tree = render(fixtureState(), { wide: true }, { 13: { text: '会话已删除（在回收站里可找回）', tone: 'ok', confirm: '' } })
+  const root = collectByType(tree, 'div').find((node) => node.props.className === 'tsb-root')
+  const top = collectByType(root, 'div').find((node) => node.props.className === 'tsb-top')
+  const scroll = collectByType(root, 'div').find((node) => node.props.className === 'tsb-scroll')
+
+  const flash = collectByType(top, 'div').find((node) => node.props.className === 'tsb-flash is-ok')
+  assert.ok(flash, '删成功的反馈在常驻头里')
+  assert.equal(
+    collectByType(scroll, 'div').filter((node) => node.props.className?.startsWith?.('tsb-flash')).length,
+    0,
+    '滚动区里不该再有这条提示（原来它就在列表最底下，列表一长根本滚不到）',
+  )
+})
+
+test('删除相关的样式：危险项、顶部提示条、按钮都走 DSH 令牌', () => {
   const css = client.styles[0].textContent
   assert.match(css, /\.tsb-menu-item\.is-danger \{[^}]*--dsw-alias-state-error-primary/, '删除项用 error 令牌')
-  assert.match(css, /\.tsb-confirm \{[^}]*width/, '确认块是独立一块')
-  assert.match(css, /\.tsb-confirm-btn\.is-danger \{[^}]*--dsw-alias-state-error-primary/, '确认按钮同色')
-  assert.match(css, /\.tsb-confirm-hint \{[^}]*--dsw-alias-label-tertiary/, '提示文字用次要色')
+  assert.match(css, /\.tsb-flash \{[^}]*var\(--dsw-alias-bg-layer-2\)/, '提示条是独立一块，底色走令牌')
+  assert.match(css, /\.tsb-flash-btn\.is-danger \{[^}]*--dsw-alias-state-error-primary/, '确认按钮同色')
+  assert.match(css, /\.tsb-flash-hint \{[^}]*--dsw-alias-label-tertiary/, '提示文字用次要色')
+  assert.match(css, /\.tsb-flash\.is-ok \{[^}]*--dsw-alias-state-success-primary/, '删成功的反馈用 success 令牌')
+  assert.doesNotMatch(css, /\.tsb-confirm/, '就地确认浮层的样式一并撤掉')
 })
 
 // —— v0.7：区域高度铺满 + 一屏铺不完就折起来 ——

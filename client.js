@@ -75,6 +75,22 @@
  * 即 deepseek-500 #4176e6）：**打开着的**文件夹是蓝的；收着、但里面正开着主视图那条会话的
  * 工作区也是蓝的（内置的祖先高亮）。「当前会话」照内置取 `sessions.list` 快照里
  * `retainedBy.mainView > 0` 的那一条，不另存状态——快照一变就跟着重画。
+ *
+ * v0.11.3 修「新会话没排在最上面」：DSH 的工作区成员表 `sessionIds` 是**登记顺序**
+ * （`attachSession` 往数组头部 unshift），不是展示顺序。新会话确实在最前，可一条老会话
+ * 被重新打开、跑完一轮之后，它在表里的位置并不动——于是「最近聊过的那条」埋在中间，
+ * 而内置侧栏里它始终在最上面（内置用 `summary.updatedAt` 倒序）。现在工作区成员与
+ * 搜索结果都照内置的 `orderByRecency` 口径重排：`updatedAt` 大的在前，相同（含拿不到，
+ * 都记 0）时按 id 字符串兜底，保证顺序稳定、不抖动。
+ *
+ * v0.11.4 删除会话不再弹浮层：原来点「删除会话…」是菜单**原地换成一个 214px 的确认块**
+ * （标题 + 一句说明 + 取消 / 删除），浮在行上、还带着红按钮——一下把人从列表里拽走，
+ * 太突兀。现在统一改成**顶部提示条**（`.tsb-flash`，画在常驻头 `.tsb-top` 里，不随列表滚）：
+ *   1. 点「删除会话…」＝ 菜单正常收起 + 顶部一行「删除这条会话？日志会移进回收站…」
+ *      ＋「取消 / 删除」两颗按钮，取消或 Esc 都能撤；
+ *   2. 删成功 / 复制 Session ID 的反馈也走同一条（4 秒后自己消失），不再丢在列表最底下
+ *      那行灰字里——列表一长，那行根本滚不到。
+ * 二次确认本身留着：删除是唯一动文件的动作，不该点一下就执行（只是换个不突兀的问法）。
  */
 window.__ModuleLoader__.load({
   id: 'dsh-task-folders',
@@ -287,6 +303,8 @@ window.__ModuleLoader__.load({
     const SESSION_LIMIT = 10
     /** 折起来也一定要露脸的状态：跑着的、等着你回话的，藏起来等于让人干等。 */
     const ATTENTION_STATES = new Set(['running', 'pending'])
+    /** 弹出菜单的宽度（视图选项 / 会话「…」/ 工作区「…」都是同一档）。 */
+    const MENU_WIDTH = 156
 
     const zh = {
       project: '项目',
@@ -965,22 +983,30 @@ window.__ModuleLoader__.load({
  /* 破坏性操作（删除会话）用 error 令牌染字，与 DSH 自己的危险动作同色。 */
  .tsb-menu-item.is-danger { color: var(--dsw-alias-state-error-primary); }
  .tsb-menu-check { width: 10px; color: var(--dsw-alias-brand-primary); }
- /* 就地二次确认：菜单原地换成一句话 + 两颗按钮，不弹系统对话框。 */
- .tsb-confirm {
-   width: 214px;
-   gap: 6px;
-   padding: 8px;
-   cursor: default;
- }
- .tsb-confirm-title {
+ /* 顶部提示条：删除会话的二次确认与「已删除 / 已复制」的反馈都画在这一条里。
+    它挂在常驻头 .tsb-top 上，不随列表滚——列表一长，丢在列表最底下的提示根本没人看见；
+    而原来那个「菜单原地换成确认块」的浮层太突兀，一下把人从行上拽走。 */
+ .tsb-flash {
+   flex: 0 0 auto;
+   display: flex;
+   align-items: center;
+   gap: 8px;
+   margin: 0 0 2px;
+   padding: 6px 8px;
+   border: 1px solid var(--dsw-alias-border-l1);
+   border-radius: var(--dsw-radius-sm);
+   background: var(--dsw-alias-bg-layer-2);
+   color: var(--dsw-alias-label-secondary);
    font-size: 12px;
    line-height: 17px;
-   font-weight: 600;
-   color: var(--dsw-alias-label-primary);
  }
- .tsb-confirm-hint { font-size: 11px; line-height: 15px; color: var(--dsw-alias-label-tertiary); }
- .tsb-confirm-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 2px; }
- .tsb-confirm-btn {
+ .tsb-flash.is-error { color: var(--dsw-alias-state-error-primary); }
+ .tsb-flash.is-ok { color: var(--dsw-alias-state-success-primary); }
+ .tsb-flash-text { flex: 1 1 auto; min-width: 0; }
+ .tsb-flash-title { color: var(--dsw-alias-label-primary); font-weight: 600; }
+ .tsb-flash-hint { color: var(--dsw-alias-label-tertiary); font-size: 11px; line-height: 15px; }
+ .tsb-flash-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; }
+ .tsb-flash-btn {
    height: 24px;
    padding: 0 10px;
    border: 1px solid var(--dsw-alias-border-l1);
@@ -991,8 +1017,8 @@ window.__ModuleLoader__.load({
    line-height: 22px;
    cursor: pointer;
  }
- .tsb-confirm-btn:hover { background: var(--dsw-alias-interactive-bg-hover); }
- .tsb-confirm-btn.is-danger {
+ .tsb-flash-btn:hover { background: var(--dsw-alias-interactive-bg-hover); }
+ .tsb-flash-btn.is-danger {
    border-color: var(--dsw-alias-state-error-primary);
    color: var(--dsw-alias-state-error-primary);
  }
@@ -1421,6 +1447,33 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * 一组会话按「最近活跃」倒序（同内置侧栏的 `orderByRecency`）。
+     *
+     * 为什么要自己排：DSH 的工作区成员表 `sessionIds` 是**登记顺序**（`attachSession` 往
+     * 数组头部 unshift），不是展示顺序。新会话确实在最前，可一条老会话被重新打开、
+     * 跑完一轮之后，它在表里的位置并不动——于是「最近聊过的那条」埋在中间，内置侧栏
+     * 里却始终在最上面（内置用的是 `summary.updatedAt` 倒序）。
+     *
+     * 口径与内置逐字对齐：`updatedAt` 大的在前；`updatedAt` 相同（都拿不到时为 0）时
+     * 按 id 字符串比，保证每次渲染顺序稳定、不抖动。
+     * @param {string[]} ids - 会话 id 数组（会被就地排序，调用方传副本）。
+     * @param {object} ctx - 客户端上下文（读 `sessions.list` 快照）。
+     * @returns {string[]} 排好序的 id 数组。
+     */
+    function orderByRecency(ids, ctx) {
+      const snapshot = ctx.get('sessions')?.list?.getSnapshot?.()
+      const byId = snapshot?.byId
+      const stamp = (id) => {
+        const value = byId?.[id]?.updatedAt
+        return typeof value === 'number' && Number.isFinite(value) ? value : 0
+      }
+      return ids.sort((left, right) => {
+        const delta = stamp(right) - stamp(left)
+        return delta !== 0 ? delta : left < right ? -1 : left > right ? 1 : 0
+      })
+    }
+
+    /**
      * 侧栏里那种短短的相对时间。
      * @param {number} value - epoch 毫秒。
      * @returns {string} `刚刚` / `N 分钟` / `N 小时` / `MM-DD`。
@@ -1837,7 +1890,9 @@ window.__ModuleLoader__.load({
         const [menu, setMenu] = React.useState(null)
         const [archivedProjectsOpen, setArchivedProjectsOpen] = React.useState(false)
         const [remoteSearch, setRemoteSearch] = React.useState({ pending: false, items: [], hasMore: false })
-        const [notice, setNotice] = React.useState('')
+        // 顶部提示条（v0.11.4）：`null` = 不画；`{confirm: sessionId}` = 删除会话的二次确认
+        // （说明 + 取消 / 删除）；`{text, tone}` = 一句反馈，4 秒后自己消失。
+        const [notice, setNotice] = React.useState(null)
         // v0.6：刚删掉的会话先在本地藏起来，等 Host 的下一份状态追上（sessionQuery 索引
         // 要等一次 reconcile 才会掉这条），这几秒里侧栏不该还挂着一条点不开的行。
         const [hiddenIds, setHiddenIds] = React.useState(() => new Set())
@@ -1850,6 +1905,8 @@ window.__ModuleLoader__.load({
         const searchInput = React.useRef(null)
         /** 常驻头（标题行 + 搜索框）：点到它外面才算「离开搜索」，见下面的 mousedown 监听。 */
         const searchTop = React.useRef(null)
+        /** 顶部提示条的自消定时器：换一条先把上一条的定时器收掉，别让旧的那条迟来覆盖。 */
+        const flashTimer = React.useRef(null)
 
         const mounted = React.useRef(true)
 
@@ -1919,11 +1976,14 @@ window.__ModuleLoader__.load({
 
         /**
          * 开 / 关菜单，同时把它的落点量好。
+         *
+         * 开新菜单时顺手撤掉顶部那条删除确认：人都改去点别处了，那行问句没有占着地方的理由。
          * @param {object|null} next - 菜单状态（null = 关）。
          * @param {object|null} element - 触发按钮。
          * @param {number} [height] - 菜单高度估计。
          */
         const openMenu = (next, element, height = 99) => {
+          if (next !== null) setNotice(null)
           setMenu(next)
           setMenuAnchor(next === null ? null : measureMenu(element, height))
         }
@@ -2024,14 +2084,31 @@ window.__ModuleLoader__.load({
         )
 
         /**
-         * 弹一句短提示（复制成功 / 归档失败之类），4 秒后自己消失。
+         * 顶部提示条的一句反馈（删成功 / 复制成功之类），4 秒后自己消失。
+         *
+         * 画在常驻头里而不是列表最底下：列表一长，那行灰字根本滚不到眼前，而且会在列表里
+         * 突然冒出来一行、把下面的内容往下顶——那就是「突兀」的由来。
          * @param {string} text - 提示文本。
+         * @param {''|'ok'|'error'} [tone] - 色调（空 = 次要文字）。
          */
-        const flash = React.useCallback((text) => {
-          setNotice(text)
-          setTimeout(() => {
-            if (mounted.current) setNotice('')
+        const flash = React.useCallback((text, tone = '') => {
+          setNotice({ text: String(text), tone, confirm: '' })
+          if (flashTimer.current !== null) clearTimeout(flashTimer.current)
+          flashTimer.current = setTimeout(() => {
+            if (mounted.current) setNotice(null)
           }, 4000)
+        }, [])
+
+        /**
+         * 删除会话的二次确认（v0.11.4 起走顶部提示条，不再是菜单里的浮层）：
+         * 菜单由 `renderMenu` 的点击处理照常收起，这里只把问句摆到顶部——
+         * 「删除这条会话？…」＋「取消 / 删除」，取消或 Esc 都能撤。
+         * 删除是唯一动文件的动作，不该点一下就执行——只是换个不突兀的问法。
+         * @param {string} sessionId - 待确认删除的会话 id。
+         */
+        const confirmDeleteSession = React.useCallback((sessionId) => {
+          if (flashTimer.current !== null) clearTimeout(flashTimer.current)
+          setNotice({ text: '', tone: '', confirm: String(sessionId) })
         }, [])
 
         /**
@@ -2070,6 +2147,9 @@ window.__ModuleLoader__.load({
          * 删除一条会话（v0.6）——DSH 原生只有归档，物理删除由插件的 Host 那侧落地：
          * 把会话日志、按天副本、投影缓存收进回收站，再把 id 从归档集合与工作区成员表里摘掉。
          * Host 只会因为一件事拒绝：会话还在干活（先停再删，别把这一轮工作丢掉）。
+         *
+         * v0.11.4：入口从「菜单里的就地确认浮层」改成顶部提示条（`confirmDeleteSession`），
+         * 删成功的反馈也画回同一条（`ok` 色调，4 秒自消）。
          * @param {string} sessionId - 会话 id。
          */
         const deleteSession = React.useCallback(
@@ -2084,7 +2164,7 @@ window.__ModuleLoader__.load({
               // 先本地藏起来：sessionQuery 的索引要等一次 reconcile 才会掉这条，别让侧栏
               // 在这几秒里挂着一条点不开的行。
               setHiddenIds((current) => new Set(current).add(String(sessionId)))
-              flash(t('deleted'))
+              flash(t('deleted'), 'ok')
             })
           },
           [run, flash, t],
@@ -2096,7 +2176,7 @@ window.__ModuleLoader__.load({
          */
         const copySessionId = React.useCallback(
           (sessionId) => {
-            const done = (ok) => flash(ok ? t('copied') : t('copyFailed'))
+            const done = (ok) => flash(ok ? t('copied') : t('copyFailed'), ok ? 'ok' : 'error')
             try {
               const clipboard = typeof navigator !== 'undefined' ? navigator?.clipboard : undefined
               if (clipboard !== undefined && typeof clipboard.writeText === 'function') {
@@ -2151,7 +2231,7 @@ window.__ModuleLoader__.load({
           }
         }, [menu])
 
-        // Ctrl/⌘+K 开搜索（与内置侧栏同一个快捷键）；Esc 收起搜索与菜单。
+        // Ctrl/⌘+K 开搜索（与内置侧栏同一个快捷键）；Esc 收起搜索、菜单与顶部提示条。
         React.useEffect(() => {
           if (typeof document === 'undefined' || typeof document.addEventListener !== 'function') return undefined
           const onKeyDown = (event) => {
@@ -2164,6 +2244,8 @@ window.__ModuleLoader__.load({
             }
             if (event.key === 'Escape') {
               setMenu(null)
+              // 顶部那条删除确认也一起撤：Esc 在这一块区域里就是「算了」。
+              setNotice(null)
               closeSearch()
             }
           }
@@ -2227,6 +2309,8 @@ window.__ModuleLoader__.load({
         /** 打开一条会话。 */
         const openSession = React.useCallback(
           (sessionId) => {
+            // 人都改去开会话了，顶部那条删除问句没有占着地方的理由（取消 / Esc 之外第三条撤法）。
+            setNotice(null)
             const uiWorkspace = ctx.get('uiWorkspace')
             if (!uiWorkspace || typeof uiWorkspace.openSession !== 'function') {
               setError(t('errorOpen'))
@@ -2386,18 +2470,22 @@ window.__ModuleLoader__.load({
         const taskActive = mergeActive([...dayActive.values()])
 
         /**
-         * 一个工作区当前要画的成员（跟着「归档过滤」与本地隐藏走，与行里列的一致）。
+         * 一个工作区当前要画的成员（跟着「归档过滤」与本地隐藏走，与行里列的一致），
+         * 并按最近活跃倒序——与内置侧栏同一套口径。
          * @param {object} workspace - 工作区视图。
          * @returns {string[]} 成员 id。
          */
         const workspaceMembers = (workspace) =>
-          (Array.isArray(workspace?.sessionIds) ? workspace.sessionIds : []).filter((sessionId) => {
-            if (hiddenIds.has(String(sessionId))) return false
-            const sidebarArchived = archivedSessionIds.has(String(sessionId))
-            if (archivedFilter === 'hide') return !sidebarArchived
-            if (archivedFilter === 'only') return sidebarArchived
-            return true
-          })
+          orderByRecency(
+            (Array.isArray(workspace?.sessionIds) ? workspace.sessionIds : []).filter((sessionId) => {
+              if (hiddenIds.has(String(sessionId))) return false
+              const sidebarArchived = archivedSessionIds.has(String(sessionId))
+              if (archivedFilter === 'hide') return !sidebarArchived
+              if (archivedFilter === 'only') return sidebarArchived
+              return true
+            }),
+            ctx,
+          )
 
         const workspaceActive = new Map(
           plainWorkspaces.map((workspace) => [workspace.id, activeDescendants(ctx, workspaceMembers(workspace), t)]),
@@ -2486,7 +2574,14 @@ window.__ModuleLoader__.load({
           }
           const limit = 20
           return {
-            items: items.slice(0, limit),
+            // 搜索结果也按最近活跃倒序（与内置侧栏的搜索同口径），
+            // 免得「最近聊过的那条」被登记顺序埋在后头。
+            items: orderByRecency(
+              items.map((item) => item.id),
+              ctx,
+            )
+              .map((id) => byId.get(id))
+              .slice(0, limit),
             pending: remoteSearch.pending === true,
             hasMore: items.length > limit || remoteSearch.hasMore === true,
           }
@@ -2495,11 +2590,11 @@ window.__ModuleLoader__.load({
         /**
          * 菜单落点的内联样式：量到视口坐标就用 fixed（叠在整页之上，不被侧栏区域裁）；
          * 量不到就返回 undefined，交给 `.tsb-menu` 里那套「贴在行下面」的 CSS 兜底。
-         * @param {number} width - 菜单宽度（视图 / 会话菜单 156，删除确认 214）。
          * @returns {object|undefined} 内联样式。
          */
-        const menuStyle = (width) => {
+        const menuStyle = () => {
           if (menuAnchor === null) return undefined
+          const width = MENU_WIDTH
           const viewportWidth = typeof window === 'undefined' ? Number.NaN : Number(window.innerWidth)
           const maxLeft = Number.isFinite(viewportWidth) ? viewportWidth - width - 8 : menuAnchor.left
           return {
@@ -2515,7 +2610,7 @@ window.__ModuleLoader__.load({
 
         /**
          * 画一个弹出菜单（浮在行下面，能翻到上面去）。
-         * @param {object[]} items - `{key, label, checked, onSelect}`。
+         * @param {object[]} items - `{key, label, checked, danger, onSelect}`。
          * @param {string} key - React key。
          * @returns {object} React 元素。
          */
@@ -2527,7 +2622,7 @@ window.__ModuleLoader__.load({
                 className: 'tsb-menu',
                 key,
                 role: 'menu',
-                style: menuStyle(156),
+                style: menuStyle(),
                 // 点菜单项时别让 document 上的「点外面关掉」抢走这一次点击。
                 onClick: (event) => event.stopPropagation(),
               },
@@ -2541,9 +2636,9 @@ window.__ModuleLoader__.load({
                     key: item.key,
                     type: 'button',
                     role: 'menuitem',
-                    // 需要再点一步的项（删除的二次确认）自己留着菜单，其余点完就收。
+                    // 菜单点完就收（v0.11.4 起删除的二次确认改走顶部提示条，不再有「留着菜单」的项）。
                     onClick: () => {
-                      if (item.keepMenu !== true) setMenu(null)
+                      setMenu(null)
                       item.onSelect()
                     },
                   },
@@ -2556,50 +2651,61 @@ window.__ModuleLoader__.load({
           )
 
         /**
-         * 删除会话的就地二次确认：菜单原地换成一句说明 + 「取消 / 删除」。
-         * 删除对用户就是不可逆的，不该点一下就执行——先让手停半秒。
-         * @param {string} sessionId - 会话 id。
-         * @param {string} key - React key。
-         * @returns {object} React 元素。
+         * 顶部提示条（v0.11.4）：删除会话的二次确认与删成功 / 复制成功的反馈都画在这里。
+         *
+         * 为什么不放在列表里：`.tsb-scroll` 一长，列表最底下那行提示滚不到眼前，而且会在
+         * 列表中间突然冒出来、把内容往下顶。挂在常驻头 `.tsb-top` 上，位置固定、来去都有交代。
+         * 删除是唯一动文件的动作，所以问句照问——只是不再用浮层一下把人从行上拽走。
+         * @returns {object|null} React 元素（没有提示时 null）。
          */
-        const renderDeleteConfirm = (sessionId, key) =>
-          portalMenu(
-            h(
+        const renderTopNotice = () => {
+          if (notice === null || typeof notice !== 'object') return null
+          if (typeof notice.confirm === 'string' && notice.confirm !== '') {
+            return h(
               'div',
-              {
-                className: 'tsb-menu tsb-confirm',
-                key,
-                role: 'dialog',
-                style: menuStyle(214),
-                onClick: (event) => event.stopPropagation(),
-              },
-              h('div', { className: 'tsb-confirm-title' }, t('deleteConfirmTitle')),
-              h('div', { className: 'tsb-confirm-hint' }, t('deleteConfirmHint')),
+              { className: 'tsb-flash is-confirm', key: 'top-notice', role: 'alert' },
               h(
                 'div',
-                { className: 'tsb-confirm-actions' },
+                { className: 'tsb-flash-text' },
+                h('div', { className: 'tsb-flash-title' }, t('deleteConfirmTitle')),
+                h('div', { className: 'tsb-flash-hint' }, t('deleteConfirmHint')),
+              ),
+              h(
+                'div',
+                { className: 'tsb-flash-actions' },
                 h(
                   'button',
-                  { className: 'tsb-confirm-btn', key: 'cancel', type: 'button', onClick: () => setMenu(null) },
+                  { className: 'tsb-flash-btn', key: 'cancel', type: 'button', onClick: () => setNotice(null) },
                   t('cancel'),
                 ),
                 h(
                   'button',
                   {
-                    className: 'tsb-confirm-btn is-danger',
+                    className: 'tsb-flash-btn is-danger',
                     key: 'confirm',
                     type: 'button',
                     onClick: () => {
-                      setMenu(null)
-                      deleteSession(sessionId)
+                      // 先收问句再动手：删成功会换成一条 ok 反馈，失败则由 run() 报在下面。
+                      setNotice(null)
+                      deleteSession(notice.confirm)
                     },
                   },
                   t('deleteConfirmAction'),
                 ),
               ),
-            ),
-            key,
+            )
+          }
+          if (notice.text === '') return null
+          return h(
+            'div',
+            {
+              className: ['tsb-flash', notice.tone === '' ? '' : `is-${notice.tone}`].filter(Boolean).join(' '),
+              key: 'top-notice',
+              role: 'status',
+            },
+            h('span', { className: 'tsb-flash-text' }, notice.text),
           )
+        }
 
         /** 视图选项里的归档过滤三档。 */
         const viewMenuItems = [
@@ -2626,10 +2732,8 @@ window.__ModuleLoader__.load({
             key: 'delete',
             label: t('deleteSession'),
             danger: true,
-            // 留着菜单，下一步换成就地确认（就地确认块由 renderDeleteConfirm 画）。
-            keepMenu: true,
-            onSelect: () =>
-              setMenu({ kind: 'session', id: sessionId, sidebarArchived: sidebarArchived === true, confirm: 'delete' }),
+            // v0.11.4：不再在菜单里就地换确认浮层（太突兀），改为收起菜单 + 顶部提示条问一句。
+            onSelect: () => confirmDeleteSession(sessionId),
           },
         ]
 
@@ -2679,11 +2783,7 @@ window.__ModuleLoader__.load({
               },
               ellipsisIcon(14),
             ),
-            isMenuOpen
-              ? menu.confirm === 'delete'
-                ? renderDeleteConfirm(sessionId, `menu:${sessionId}`)
-                : renderMenu(sessionMenuItems(sessionId, sidebarArchived), `menu:${sessionId}`)
-              : null,
+            isMenuOpen ? renderMenu(sessionMenuItems(sessionId, sidebarArchived), `menu:${sessionId}`) : null,
           )
         }
 
@@ -3185,6 +3285,10 @@ window.__ModuleLoader__.load({
               ),
             ),
 
+            // 顶部提示条（删除会话的二次确认 / 删成功与复制成功的反馈）。
+            // 画在常驻头里：位置固定，不会被列表滚走，也不会在列表中间突然顶出一行。
+            renderTopNotice(),
+
             searchOpen
               ? h(
                   'div',
@@ -3242,7 +3346,6 @@ window.__ModuleLoader__.load({
                 ],
 
             error !== '' ? h('div', { className: 'tsb-notice is-error' }, error) : null,
-            notice !== '' ? h('div', { className: 'tsb-notice' }, notice) : null,
             staleHost ? h('div', { className: 'tsb-notice is-error' }, t('errorStaleHost')) : null,
             canCreate === false ? h('div', { className: 'tsb-notice' }, t('canNotCreate')) : null,
           ),
