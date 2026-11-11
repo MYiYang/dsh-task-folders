@@ -130,6 +130,11 @@ function mount(options = {}) {
       if (name === 'agents' && options.liveAgents !== undefined) {
         return { get: (id) => options.liveAgents[id] }
       }
+      // v0.12：goal 服务（可选的活会话标题提示来源）
+      if (name === 'agents' && options.agents !== undefined) {
+        return { list: () => options.agents, get: (id) => options.agents.find((agent) => agent.id === id) }
+      }
+      if (name === 'goals' && options.goals !== undefined) return options.goals
       if (name === 'agentPresets' && options.presets !== undefined) return options.presets
       if (name === 'workingDirectory') return { defaultDirectory: home }
       return undefined
@@ -316,6 +321,76 @@ test('没有工作区的会话自动按天归档；有工作区的一概不动',
   assert.deepEqual(state.dayGroups.map((group) => group.day), [day])
   assert.deepEqual(state.dayGroups[0].sessions.map((session) => session.id), ['session-loose'])
   assert.equal(state.workspaces.length, 1, '普通工作区照旧')
+})
+
+test('指令开的会话：state 带上真实活跃时间与 /goal 标题提示（v0.12）', async () => {
+  const harness = mount()
+  const created = harness.listeners.get('session/created')
+  const onEvent = harness.listeners.get('session/event')
+  // 30 天前建的空壳会话（DSH 的「新建会话」会复用它）。
+  const createdAt = Date.now() - 30 * 86_400_000
+  const session = fakeSession('session-command', null, [], createdAt)
+  harness.sessions.set(session.id, session)
+  created(session)
+
+  // 今天用 /goal 指令开起来：没有 user/message，只有 command/run + goal/change。
+  const commandAt = Date.now() - 60_000
+  onEvent(session, {
+    type: 'command/run',
+    seq: 0,
+    time: commandAt,
+    data: { commandId: 'cmd-1', name: 'goal', args: ' 日志输出如下内容，是什么问题', source: { kind: 'user' } },
+  })
+  onEvent(session, {
+    type: 'goal/change',
+    seq: 1,
+    time: commandAt + 1,
+    data: { kind: 'goal/change', operation: 'create', goal: { objective: '日志输出如下内容，是什么问题' } },
+  })
+
+  const state = (await post(harness, 'state')).json.value
+  const meta = state.sessionMeta['session-command']
+  assert.equal(meta.title, '日志输出如下内容，是什么问题', '指令文本成了标题提示')
+  assert.equal(meta.activityAt, commandAt + 1, '活动时间按事件时间，不再停在创建时刻')
+  assert.deepEqual(state.dayGroups.map((group) => group.day), [dayKey(commandAt)], '按最后活跃那天落到今天')
+  assert.deepEqual(
+    state.dayGroups[0].sessions.map((entry) => entry.id),
+    ['session-command'],
+  )
+  assert.equal(state.dayGroups[0].sessions[0].archiveDay, dayKey(createdAt), '磁盘副本仍记着创建那天')
+})
+
+test('会话自己生成了持久标题后，指令提示让位（v0.12）', async () => {
+  const harness = mount()
+  const created = harness.listeners.get('session/created')
+  const onEvent = harness.listeners.get('session/event')
+  const session = fakeSession('session-command', null, [])
+  harness.sessions.set(session.id, session)
+  created(session)
+  onEvent(session, { type: 'command/run', seq: 0, time: Date.now(), data: { name: 'goal', args: ' 旧指令文本' } })
+  assert.equal((await post(harness, 'state')).json.value.sessionMeta['session-command'].title, '旧指令文本')
+  onEvent(session, { type: 'session/title', seq: 1, time: Date.now(), data: { title: '真正的标题' } })
+  assert.equal(
+    (await post(harness, 'state')).json.value.sessionMeta['session-command'].title,
+    undefined,
+    '持久标题到了，展示用提示没理由再留着',
+  )
+})
+
+test('活会话的 goal 文本在 state 时补成标题提示（v0.12）', async () => {
+  const harness = mount({
+    agents: [{ id: 'session-live-goal' }],
+    goals: { get: (agent) => (agent.id === 'session-live-goal' ? { objective: '记住不要发表情图片' } : undefined) },
+  })
+  const session = fakeSession('session-live-goal', null, [])
+  harness.sessions.set(session.id, session)
+  const state = (await post(harness, 'state')).json.value
+  assert.equal(state.sessionMeta['session-live-goal'].title, '记住不要发表情图片')
+  assert.equal(
+    JSON.parse(fs.readFileSync(path.join(harness.home, 'task-folders', 'session-hints.json'), 'utf8')).hints[0].title,
+    '记住不要发表情图片',
+    '提示也落了盘',
+  )
 })
 
 test('子代理不归档；重复 session/created 不重复写；丢了对工作区的归属就补归档', async () => {

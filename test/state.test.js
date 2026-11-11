@@ -32,33 +32,45 @@ function writeSession(root, day, sessionId, meta = {}) {
   return dir
 }
 
+/**
+ * 本地时区某天某点的时间戳（测试用；按天分组的键与本地时区走）。
+ * @param {number} year - 年。
+ * @param {number} month - 月（1-12）。
+ * @param {number} day - 日。
+ * @param {number} [hour] - 时（默认 9 点）。
+ * @returns {number} epoch 毫秒。
+ */
+function at(year, month, day, hour = 9) {
+  return new Date(year, month - 1, day, hour, 0, 0, 0).getTime()
+}
+
 test('buildState：无工作区的会话按天分组，工作区里的不掺进来', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dtf-state-'))
   const root = path.join(home, 'tasks')
   const project = path.join(home, 'my-project')
   fs.mkdirSync(project, { recursive: true })
-  writeSession(root, '2026-10-26', 'session-x', { title: '会话甲', createdAt: 5 })
-  writeSession(root, '2026-10-26', 'session-y', { title: '', createdAt: 6 })
-  writeSession(root, '2026-10-25', 'session-z', { title: '老会话', createdAt: 1 })
+  writeSession(root, '2026-10-26', 'session-x', { title: '会话甲', createdAt: at(2026, 10, 26, 9) })
+  writeSession(root, '2026-10-26', 'session-y', { title: '', createdAt: at(2026, 10, 26, 10) })
+  writeSession(root, '2026-10-25', 'session-z', { title: '老会话', createdAt: at(2026, 10, 25, 9) })
 
   const state = buildState({
     root,
     liveIds: new Set(['session-y']),
     canCreate: true,
     records: [
-      { id: 'session-x', createdAt: 5, cwd: root, live: false },
-      { id: 'session-y', createdAt: 6, cwd: '', live: true },
-      { id: 'session-z', createdAt: 1, cwd: root, live: false },
+      { id: 'session-x', createdAt: at(2026, 10, 26, 9), cwd: root, live: false },
+      { id: 'session-y', createdAt: at(2026, 10, 26, 10), cwd: '', live: true },
+      { id: 'session-z', createdAt: at(2026, 10, 25, 9), cwd: root, live: false },
       // 工作区里的会话：不进任务组
-      { id: 'session-p', createdAt: 7, cwd: project, live: false },
+      { id: 'session-p', createdAt: at(2026, 10, 26, 11), cwd: project, live: false },
       // 子代理：不是独立对话
-      { id: 'session-sub', createdAt: 7, cwd: '', origin: 'subagent', live: false },
+      { id: 'session-sub', createdAt: at(2026, 10, 26, 11), cwd: '', origin: 'subagent', live: false },
       // 全局归档的：默认不显示
-      { id: 'session-archived', createdAt: 7, cwd: '', live: false },
+      { id: 'session-archived', createdAt: at(2026, 10, 26, 11), cwd: '', live: false },
     ],
     workspaces: [{ id: 'w-plain', path: project, title: '我的项目', sessionIds: ['session-p'] }],
     archivedIds: new Set(['session-archived']),
-    now: () => 1_800_000_000_000,
+    now: () => at(2026, 10, 26, 12),
   })
 
   assert.equal(state.tasksRoot, path.resolve(root))
@@ -88,9 +100,17 @@ test('buildState：无工作区的会话按天分组，工作区里的不掺进�
   assert.deepEqual(state.archivedSessions.map((session) => session.id), ['session-archived'])
   assert.deepEqual(
     state.archivedDayGroups.map((group) => group.day),
-    ['1970-01-01'],
-    '归档会话按它自己的那天分组',
+    ['2026-10-26'],
+    '归档会话也按最后活跃那天分组（v0.12）；没有归档副本时就用创建时刻',
   )
+  // v0.12：每条会话都带「最后活动时间」，客户端排序 / 显示时间不再被 DSH 的 updatedAt 拖住
+  assert.equal(
+    state.dayGroups[0].sessions.find((session) => session.id === 'session-y').activityAt,
+    at(2026, 10, 26, 10),
+  )
+  // 工作区里的会话也在元数据里（客户端给工作区成员排序要用）
+  assert.equal(state.sessionMeta['session-p'].activityAt, at(2026, 10, 26, 11))
+  assert.equal(state.sessionMeta['session-sub'], undefined, '子代理不进元数据')
 })
 
 test('buildState：任务区工作区不显示在工作区组，但它的会话算任务', () => {
@@ -136,7 +156,7 @@ test('buildState：普通工作区的会话不进任务组（哪怕它 cwd 认�
 
 test('buildState：归档里有、records 里没有的会话也列出来', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dtf-state3-'))
-  writeSession(root, '2026-10-24', 'session-cold', { title: '冷会话', createdAt: 4 })
+  writeSession(root, '2026-10-24', 'session-cold', { title: '冷会话', createdAt: at(2026, 10, 24) })
   const state = buildState({ root, records: [] })
   assert.deepEqual(state.dayGroups.map((group) => group.day), ['2026-10-24'])
   assert.equal(state.dayGroups[0].sessions[0].id, 'session-cold')
@@ -217,4 +237,45 @@ test('buildState：归档的会话与未归档的分开两摞，天数各算各�
   assert.equal(state.dayGroups.length, 1)
   assert.equal(state.archivedDayGroups.length, 1)
   assert.equal(state.totals.sessions + state.totals.archivedSessions, 2)
+})
+
+test('buildState：指令开的会话按最后活跃那天分组（v0.12）', () => {
+  // 复现真实场景：一个 2026-09-25 建好的空壳会话被「新会话」复用，2026-11-11 用
+  // /goal 指令开始跑。DSH 的 updatedAt 会停在创建时刻，插件的活动索引要把它拉回今天。
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dtf-state-command-'))
+  writeSession(root, '2026-09-25', 'session-command', {
+    title: '',
+    createdAt: at(2026, 9, 25),
+  })
+  const state = buildState({
+    root,
+    records: [{ id: 'session-command', createdAt: at(2026, 9, 25), cwd: root, live: false }],
+    activity: new Map([['session-command', at(2026, 11, 11, 17)]]),
+    titleHints: { 'session-command': '日志输出如下内容，是什么问题' },
+    now: () => at(2026, 11, 11, 17, 30),
+  })
+  assert.deepEqual(state.dayGroups.map((group) => group.day), ['2026-11-11'], '按最后活跃那天落到今天')
+  assert.equal(state.dayGroups[0].sessions[0].archiveDay, '2026-09-25', '磁盘副本仍记着原日期')
+  assert.equal(state.dayGroups[0].sessions[0].activityAt, at(2026, 11, 11, 17))
+  assert.deepEqual(state.sessionMeta['session-command'], {
+    activityAt: at(2026, 11, 11, 17),
+    title: '日志输出如下内容，是什么问题',
+  })
+})
+
+test('buildState：工作区会话的活跃时间与标题提示也进 sessionMeta（v0.12）', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dtf-state-meta-'))
+  const root = path.join(home, 'tasks')
+  const project = path.join(home, 'my-project')
+  fs.mkdirSync(project, { recursive: true })
+  const state = buildState({
+    root,
+    records: [{ id: 'session-p', createdAt: at(2026, 10, 19), cwd: project, live: false }],
+    workspaces: [{ id: 'w-plain', path: project, title: '我的项目', sessionIds: ['session-p'] }],
+    activity: new Map([['session-p', at(2026, 11, 11, 17)]]),
+    titleHints: { 'session-p': '日志输出如下内容' },
+  })
+  assert.deepEqual(state.workspaces[0].sessionIds, ['session-p'], '工作区成员表不动（登记顺序仍由 DSH 管）')
+  assert.equal(state.sessionMeta['session-p'].activityAt, at(2026, 11, 11, 17))
+  assert.equal(state.sessionMeta['session-p'].title, '日志输出如下内容')
 })

@@ -34,6 +34,14 @@
  * 默认移进 `<home>/task-folders/trash/`（`trash: false` 才真删），同时把会话从归档集合与
  * 工作区成员表里摘掉。正在干活的会话一律拒绝删除——那等于把这一轮工作丢掉。
  *
+ * v0.12 修「指令开的会话」（`/goal`、`/permission` 这类 `command/run`）：它们没有
+ * `user/message`（source.kind === 'user'），所以 DSH 既不会生成持久标题（`displayTitle`
+ * 退回项目名），`updatedAt = max(createdAt, lastPromptAt)` 也永远停在创建时刻。Host 侧补两份：
+ *   - `lib/activity.js`：最后活动时间（活会话事件 + 会话日志 mtime + 创建时间取最大）；
+ *   - `lib/session-hints.js`：从 `/goal` 文本提取展示用标题提示，落盘
+ *     `<home>/task-folders/session-hints.json`，重启后还在。
+ * 两者经 `state.sessionMeta` 交给客户端（排序 / 时间 / 标题）。
+ *
  * 反面原则：**任何 IO 失败都不得影响会话本身**。写不出存档只记 warn。
  * @module dsh-task-folders
  */
@@ -42,10 +50,12 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createSessionArchive } from './lib/archive.js'
+import { createActivityIndex } from './lib/activity.js'
 import { dayKey, isInside, sessionDir } from './lib/paths.js'
 import { createProjectArchive } from './lib/project-archive.js'
 import { scanSessionsRoot } from './lib/scan.js'
 import { describeRemoval, pruneTrash, removeSessionFiles, trashRoot } from './lib/session-files.js'
+import { createSessionHints, titleHintOfEvent } from './lib/session-hints.js'
 import { createSessionIndex } from './lib/sessions.js'
 import {
   SkillInstallError,
@@ -243,6 +253,48 @@ export function apply(ctx, config = {}) {
     file: path.join(home, 'task-folders', 'projects.json'),
     logger: ctx.logger,
   })
+
+  // v0.12：「指令开的会话」补两样 DSH 快照给不出的东西——
+  //   1. 真实最后活动时间（DSH 的 updatedAt 只认 user/message，指令不算）；
+  //   2. 指令文本标题提示（DSH 的标题服务不会为指令生成标题，displayTitle 会退回项目名）。
+  const activityIndex = createActivityIndex({ home, logger: ctx.logger })
+  const sessionHints = createSessionHints({
+    file: path.join(home, 'task-folders', 'session-hints.json'),
+    logger: ctx.logger,
+  })
+
+  /**
+   * 活会话里当前有 goal 的，把 `goal.objective` 直接收进标题提示（v0.12）。
+   *
+   * 事件流里的 `command/run` / `goal/change` 插件不一定赶得上（插件刚重启、会话早就在
+   * 跑）；`ctx.goals.get(agent)` 在内存里还留着当前 goal，所以每次 state 顺手补一遍。
+   * 只对**当前活着的** agent 生效，冷会话等它下次被打开、追加事件时自然会补上。
+   * 两个服务都是可选的：没挂 `goals` / `agents` 就什么也不做。
+   * @returns {void}
+   */
+  function captureLiveGoalHints() {
+    const goals = ctx.get('goals')
+    const agents = ctx.get('agents')
+    if (goals === undefined || typeof goals.get !== 'function') return
+    if (agents === undefined || typeof agents.list !== 'function') return
+    let live
+    try {
+      live = agents.list()
+    } catch {
+      return
+    }
+    for (const agent of Array.isArray(live) ? live : []) {
+      if (agent === undefined || typeof agent.id !== 'string') continue
+      try {
+        const view = goals.get(agent)
+        const objective = typeof view?.objective === 'string' ? view.objective : ''
+        if (objective.trim() === '') continue
+        sessionHints.set(agent.id, objective)
+      } catch {
+        /* 不是 live instance / 当前没有 goal：跳过 */
+      }
+    }
+  }
 
   /**
    * 已接入的会话 → 存档位置。只有任务区的会话会进这张表。
@@ -657,6 +709,18 @@ export function apply(ctx, config = {}) {
    */
   function handleSessionEvent(session, event) {
     if (session === undefined || event === undefined) return
+    if (typeof session.id === 'string') {
+      // v0.12：**所有**会话都记最后活动时间（不只是任务区），并用指令文本补标题提示。
+      // 这一步放在「是不是任务区」之前——工作区里的会话同样需要它。
+      activityIndex.note(session.id, typeof event.time === 'number' ? event.time : Date.now())
+      if (event.type === 'session/title') {
+        // DSH 自己生成了持久标题：提示立刻让位，别在重启后还顶着旧指令文本。
+        sessionHints.forget(session.id)
+      } else {
+        const hint = titleHintOfEvent(event)
+        if (hint !== undefined) sessionHints.set(session.id, hint)
+      }
+    }
     let binding = bindings.get(session.id)
     if (binding === undefined) {
       // 会话可能是建好后被挪进任务区（或工作区被删）：补接一次。
@@ -877,11 +941,17 @@ export function apply(ctx, config = {}) {
     async state() {
       const records = await gatherRecords()
       await ensureTaskWorkspace(records)
+      // v0.12：赶上插件启动时已经开着的 goal 会话（事件流没赶上）也从 goal 服务补一份标题提示。
+      captureLiveGoalHints()
       const value = buildState({
         root: tasks.root,
         taskWorkspaceId,
         records,
         workspaces: registryList(),
+        // v0.12：指令开的会话没有 lastPromptAt / 持久标题，DSH 快照给不出真实活跃时间与
+        // 像样的标题——这两份由插件补（见 lib/activity.js、lib/session-hints.js）。
+        activity: activityIndex.snapshot(),
+        titleHints: sessionHints.snapshot(),
         liveIds: liveSessionIds(),
         archivedIds: archivedSessionIds(),
         archivedWorkspaces: new Set(projects.list()),
@@ -1010,6 +1080,9 @@ export function apply(ctx, config = {}) {
       }
 
       const forgotten = await forgetSession(sessionId)
+      // v0.12：活动索引缓存与标题提示也一并忘掉，别让删掉的 id 在侧栏元数据里挂到下次重扫。
+      activityIndex.forget(sessionId)
+      sessionHints.forget(sessionId)
       const summary = describeRemoval(report)
       ctx.logger?.info?.(`dsh-task-folders: 删除会话 ${sessionId} —— ${summary}`)
       if (report.skipped.length > 0) {
@@ -1122,6 +1195,10 @@ export function apply(ctx, config = {}) {
         taskWorkspaceId,
         records,
         workspaces: registryList(),
+        // v0.12：指令开的会话没有 lastPromptAt / 持久标题，DSH 快照给不出真实活跃时间与
+        // 像样的标题——这两份由插件补（见 lib/activity.js、lib/session-hints.js）。
+        activity: activityIndex.snapshot(),
+        titleHints: sessionHints.snapshot(),
         liveIds: liveSessionIds(),
         archivedIds: archivedSessionIds(),
         archivedWorkspaces: new Set(projects.list()),

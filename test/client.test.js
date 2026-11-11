@@ -144,6 +144,34 @@ const SESSION_SUMMARIES = {
     updatedAt: Date.now() - 300_000_000,
     projectionValues: { title: '远程搜到的' },
   },
+  // v0.12：用「指令」开的会话——没有持久标题，DSH 的 displayTitle 退回 cwd 目录名（项目名）。
+  'session-ffff6666': {
+    id: 'session-ffff6666',
+    displayTitle: 'dsh-skill-nudge',
+    cwd: 'F:\\ssdwork\\vscode\\work\\zs\\work\\plugins\\dsh-skill-nudge',
+    running: false,
+    updatedAt: Date.now() - 3_600_000,
+    projectionValues: { title: null },
+  },
+  // 同一条会话的「很久以前建的」版本：updatedAt 停在创建时刻，靠 Host 的 activityAt 纠偏。
+  'session-gggg7777': {
+    id: 'session-gggg7777',
+    displayTitle: 'dsh-skill-nudge',
+    cwd: 'F:\\ssdwork\\vscode\\work\\zs\\work\\plugins\\dsh-skill-nudge',
+    running: false,
+    updatedAt: Date.now() - 400_000_000,
+    projectionValues: { title: null },
+  },
+  // 空白会话：还没发过第一句，标题该是「新会话」。
+  'session-hhhh8888': {
+    id: 'session-hhhh8888',
+    displayTitle: 'dsh-skill-nudge',
+    cwd: 'F:\\ssdwork\\vscode\\work\\zs\\work\\plugins\\dsh-skill-nudge',
+    running: false,
+    blank: true,
+    updatedAt: Date.now() - 120_000,
+    projectionValues: { title: null },
+  },
 }
 
 /** uiSession 的假状态：会话 id → {running, pendingInteraction, completionUnread}。 */
@@ -885,7 +913,7 @@ test('窄栏（wide=false）只给展开入口；不能建工作区时禁用「�
   }
 })
 
-test('快照缺席时回落到「新会话」，不抛', () => {
+test('快照缺席时回落到「未命名」，不抛', () => {
   const Component = client.slots.find((slot) => slot.definition.name === 'sidebar.workspaces').Component
   const React = client.react
   const originalGet = client.ctx.get
@@ -914,7 +942,7 @@ test('快照缺席时回落到「新会话」，不抛', () => {
       tree = tree.type(tree.props)
       guard += 1
     }
-    assert.match(collectText(tree).join(' | '), /新会话/)
+    assert.match(collectText(tree).join(' | '), /未命名/)
   } finally {
     client.ctx.get = originalGet
     React.useState = originalUseState
@@ -1169,6 +1197,19 @@ function sessionRowTitles(tree, indent) {
   })
 }
 
+/**
+ * 会话行右侧的相对时间文案。
+ * @param {object} tree - 元素树。
+ * @param {string} indent - 该层会话行的缩进。
+ * @returns {string[]} 时间文案数组，从上到下。
+ */
+function sessionRowTimes(tree, indent) {
+  return sessionRows(tree, indent).map((row) => {
+    const meta = collectByType(row, 'span').find((node) => node.props.className === 'tsb-meta')
+    return meta === undefined ? '' : collectText(meta).join('')
+  })
+}
+
 test('工作区成员按最近活跃倒序，不按 DSH 登记顺序', () => {
   // 登记顺序（attachSession 往头部 unshift）是 [旧1, 旧2, 新3]，
   // 但「旧1」刚被重新打开过（updatedAt 最大）——它必须排到最前面。
@@ -1211,8 +1252,8 @@ test('updatedAt 拿不到时按 id 排，顺序稳定不抖动', () => {
   const tree = render(state, { wide: true }, { 6: new Set(['ws:w-plain']) })
   assert.deepEqual(
     sessionRowTitles(tree, '28px'),
-    ['新会话', '新会话', '新会话'],
-    '标题都退回「新会话」，但顺序必须稳定（id 字典序）',
+    ['未命名', '未命名', '未命名'],
+    '标题都退回「未命名」，但顺序必须稳定（id 字典序）',
   )
   // 直接用行首 title 属性核对 id 顺序
   assert.deepEqual(
@@ -1222,6 +1263,75 @@ test('updatedAt 拿不到时按 id 排，顺序稳定不抖动', () => {
     }),
     ['session-aaa', 'session-mmm', 'session-zzz'],
   )
+})
+
+test('指令开的会话：标题不再顶项目名（v0.12）', () => {
+  const state = fixtureState()
+  state.workspaces = []
+  state.dayGroups = [
+    {
+      day: TODAY,
+      sessions: [
+        { id: 'session-ffff6666', day: TODAY, createdAt: 2, live: false, archived: true },
+        { id: 'session-hhhh8888', day: TODAY, createdAt: 1, live: false, archived: true },
+      ],
+    },
+  ]
+  const tree = render(state, { wide: true })
+  assert.deepEqual(
+    sessionRowTitles(tree, '20px'),
+    ['未命名', '新会话'],
+    '没有持久标题的会话显示「未命名」，空白会话还是「新会话」——不再是 cwd 目录名（项目名）',
+  )
+  assert.ok(!collectText(tree).join(' | ').includes('dsh-skill-nudge'), '项目名不该出现在行标题里')
+})
+
+test('指令开的会话：Host 的活动时间与标题提示（v0.12）', () => {
+  const state = fixtureState()
+  state.dayGroups = []
+  state.workspaces = [
+    {
+      id: 'w-plain',
+      title: '我的项目',
+      path: 'F:\\ssdwork\\vscode\\work',
+      order: 0,
+      // 登记顺序把「刚从指令开起来的」放后面：展示顺序必须按 Host 的活动时间翻过来。
+      sessionIds: ['session-cccc3333', 'session-gggg7777'],
+      live: [],
+    },
+  ]
+  state.sessionMeta = {
+    // gggg 的 updatedAt 停在 400000 秒前（创建时刻），但 Host 知道它刚刚活跃过，
+    // 还从 /goal 文本里给了标题提示。
+    'session-gggg7777': { activityAt: Date.now() - 30_000, title: '日志输出如下内容，是什么问题' },
+  }
+  const tree = render(state, { wide: true }, { 6: new Set(['ws:w-plain']) })
+  assert.deepEqual(
+    sessionRowTitles(tree, '28px'),
+    ['日志输出如下内容，是什么问题', '别的项目会话'],
+    '标题提示顶上去，并排到最上面',
+  )
+  const times = sessionRowTimes(tree, '28px')
+  assert.equal(times[0], '刚刚', '时间标签也按真实活跃时间，不再显示创建日期')
+  assert.match(times[1], /\d{2}-\d{2}/u, '另一条仍按自己的 updatedAt 显示日期')
+})
+
+test('指令文本提示不压过持久标题（v0.12）', () => {
+  const state = fixtureState()
+  state.dayGroups = []
+  state.workspaces = [
+    {
+      id: 'w-plain',
+      title: '我的项目',
+      path: 'F:\\ssdwork\\vscode\\work',
+      order: 0,
+      sessionIds: ['session-dddd4444'],
+      live: [],
+    },
+  ]
+  state.sessionMeta = { 'session-dddd4444': { title: '旧指令文本' } }
+  const tree = render(state, { wide: true }, { 6: new Set(['ws:w-plain']) })
+  assert.deepEqual(sessionRowTitles(tree, '28px'), ['归档的老会话'], '持久标题优先')
 })
 
 test('搜索结果也按最近活跃倒序', () => {

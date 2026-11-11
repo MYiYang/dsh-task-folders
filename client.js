@@ -27,7 +27,8 @@
  *      绝不同时出现——那是重复的「可展开」语义。
  *
  * 数据：按天分组与工作区结构来自 Host（`/task-folders/api/state`）；会话标题来自客户端
- * `ctx.sessions.list` 快照（字段是 `displayTitle` / `projectionValues.title`），
+ * `ctx.sessions.list` 快照（持久标题在 `projectionValues.title` / `title`；v0.12 起 Host 的
+ * `sessionMeta.title` 兜住「指令开的会话」，`sessionMeta.activityAt` 兜住它们停摆的 updatedAt），
  * 运行/待确认/未读状态来自 `ctx.uiSession.sessionStatus`（拿不到就退回快照的 `running`）。
  * 任何取数失败只降级成一行提示，不白屏。
  *
@@ -91,6 +92,18 @@
  *   2. 删成功 / 复制 Session ID 的反馈也走同一条（4 秒后自己消失），不再丢在列表最底下
  *      那行灰字里——列表一长，那行根本滚不到。
  * 二次确认本身留着：删除是唯一动文件的动作，不该点一下就执行（只是换个不突兀的问法）。
+ *
+ * v0.12 修「指令开的会话」：DSH 的 `displayTitle` 在缺持久标题时会退回 **cwd 目录名**
+ * （项目名），`updatedAt` 又只认 `user/message`（source.kind === 'user'）——用 `/goal`、
+ * `/permission` 这类指令开的会话两样都拿不到，于是侧栏里标题变成项目名、时间停在创建时刻
+ * （DSH 的「新建会话」还会复用几天前建的空壳会话，位置就更离谱）。现在：
+ *   1. **标题**：只认持久标题（`projectionValues.title` / `title`）；`displayTitle` 只有在
+ *      不是 cwd 目录名、也不是会话 id 时才当标题。其余按 Host 的指令文本提示 → 「未命名」
+ *      兜底（空白会话仍是「新会话」）；
+ *   2. **时间**：排序与行尾相对时间改用 Host 的 `sessionMeta[id].activityAt`（会话事件 +
+ *      会话日志 mtime 算出来的真实活跃时间），与 DSH 快照的 `updatedAt` 取最大；
+ *   3. **分组**：任务区按 Host 给的「最后活跃那天」分组（v0.12 起），不再按创建日。
+ * 旧版 Host 没有 `sessionMeta` 时全部退回原行为，不会白屏。
  */
 window.__ModuleLoader__.load({
   id: 'dsh-task-folders',
@@ -321,6 +334,7 @@ window.__ModuleLoader__.load({
       noWorkspace: '还没有工作区。',
       noSession: '还没有会话',
       sessionUntitled: '新会话',
+      sessionUnnamed: '未命名',
       errorLoad: '侧栏数据读取失败',
       errorGeneric: '操作失败',
       errorOpen: '打不开会话',
@@ -464,6 +478,7 @@ window.__ModuleLoader__.load({
       noWorkspace: 'No workspace yet.',
       noSession: 'No session yet',
       sessionUntitled: 'New session',
+      sessionUnnamed: 'Untitled',
       errorLoad: 'Could not read the sidebar data',
       errorGeneric: 'Operation failed',
       errorOpen: 'Could not open the session',
@@ -1447,25 +1462,34 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * 一组会话按「最近活跃」倒序（同内置侧栏的 `orderByRecency`）。
+     * 一组会话按「最近活跃」倒序（同内置侧栏的 `orderByRecency`，再叠 Host 的活动时间）。
      *
      * 为什么要自己排：DSH 的工作区成员表 `sessionIds` 是**登记顺序**（`attachSession` 往
      * 数组头部 unshift），不是展示顺序。新会话确实在最前，可一条老会话被重新打开、
      * 跑完一轮之后，它在表里的位置并不动——于是「最近聊过的那条」埋在中间，内置侧栏
      * 里却始终在最上面（内置用的是 `summary.updatedAt` 倒序）。
      *
-     * 口径与内置逐字对齐：`updatedAt` 大的在前；`updatedAt` 相同（都拿不到时为 0）时
-     * 按 id 字符串比，保证每次渲染顺序稳定、不抖动。
+     * v0.12 再补一层：DSH 的 `updatedAt` 是 `max(createdAt, lastPromptAt)`，而
+     * `lastPromptAt` **只**在 `user/message` 且 source.kind === 'user' 时更新。用「指令」
+     * （`/goal`、`/permission` 这类）开的会话没有这种消息——`updatedAt` 永远停在创建时刻，
+     * 于是刚跑完几轮也排不到上面。Host 的 `sessionMeta[id].activityAt` 是从会话事件流 /
+     * 会话日志 mtime 算出来的真实活跃时间，两者取大。
+     *
+     * 口径与内置逐字对齐：时间大的在前；相同（都拿不到时为 0）时按 id 字符串比，
+     * 保证每次渲染顺序稳定、不抖动。
      * @param {string[]} ids - 会话 id 数组（会被就地排序，调用方传副本）。
      * @param {object} ctx - 客户端上下文（读 `sessions.list` 快照）。
+     * @param {Record<string, {activityAt?: number, title?: string}>} [metadata] - Host 给的会话元数据。
      * @returns {string[]} 排好序的 id 数组。
      */
-    function orderByRecency(ids, ctx) {
+    function orderByRecency(ids, ctx, metadata) {
       const snapshot = ctx.get('sessions')?.list?.getSnapshot?.()
       const byId = snapshot?.byId
       const stamp = (id) => {
+        const host = metadata !== null && typeof metadata === 'object' ? metadata?.[id]?.activityAt : undefined
+        const hostAt = typeof host === 'number' && Number.isFinite(host) ? host : 0
         const value = byId?.[id]?.updatedAt
-        return typeof value === 'number' && Number.isFinite(value) ? value : 0
+        return Math.max(hostAt, typeof value === 'number' && Number.isFinite(value) ? value : 0)
       }
       return ids.sort((left, right) => {
         const delta = stamp(right) - stamp(left)
@@ -1490,33 +1514,91 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * 从客户端会话快照里取一条会话的展示信息（拿不到就是 undefined，绝不抛）。
-     * 字段实测：`displayTitle`（持久标题在 `projectionValues.title`，空白会话为 null）。
+     * 一个路径的最后一截（会话 cwd 的目录名）。
+     * @param {unknown} target - 路径。
+     * @returns {string} 目录名；不是字符串或空路径时是空串。
+     */
+    function baseNameOf(target) {
+      if (typeof target !== 'string' || target === '') return ''
+      const parts = target.split(/[\\/]+/u).filter((part) => part !== '')
+      return parts.length === 0 ? '' : parts[parts.length - 1]
+    }
+
+    /**
+     * 一条会话快照里的展示标题（持久标题优先，其次是「像标题的」displayTitle）。
+     *
+     * 为什么不能直接用 `displayTitle`：DSH 的 `displayTitleOf(title, cwd, id)` 在没有持久
+     * 标题时会退回 **cwd 的目录名**（也就是项目名），再不行退回 id。用指令（`/goal` 这类
+     * `command/run`）开的会话拿不到持久标题，于是侧栏里就看到「项目名」当标题——v0.12
+     * 把这两种兜底值识别出来、当没有标题处理（交给调用方回落「未命名」或指令文本提示）。
+     * @param {object|undefined} summary - 客户端会话快照里的一条。
+     * @returns {string} 标题；没有就是空串。
+     */
+    function titleOfSummary(summary) {
+      if (summary === undefined || summary === null) return ''
+      const durable = [summary?.projectionValues?.title, summary?.title].find(
+        (value) => typeof value === 'string' && value.trim() !== '',
+      )
+      if (typeof durable === 'string') return durable.trim()
+      if (summary.blank === true) return ''
+      const display = typeof summary.displayTitle === 'string' ? summary.displayTitle.trim() : ''
+      if (display === '') return ''
+      // 项目名 / id 兜底 ≠ 标题
+      if (display === summary.id) return ''
+      if (display === baseNameOf(summary.cwd)) return ''
+      return display
+    }
+
+    /**
+     * 会话行的显示文案：有标题用标题，空白会话「新会话」，其余没标题的「未命名」
+     * （与内置侧栏的 `session.untitled` 同一套说法）。
+     * @param {object|undefined} info - {@link sessionInfo} 的结果。
+     * @param {(key: string) => string} t - 词典绑定。
+     * @returns {string} 展示文案。
+     */
+    function sessionLabel(info, t) {
+      if (info !== undefined && info !== null && typeof info.title === 'string' && info.title !== '') {
+        return info.title
+      }
+      return info?.blank === true ? t('sessionUntitled') : t('sessionUnnamed')
+    }
+
+    /**
+     * 从客户端会话快照 + Host 元数据里取一条会话的展示信息（拿不到就是 undefined，绝不抛）。
+     *
+     * 字段实测：持久标题在 `projectionValues.title`（空白会话为 null），`displayTitle` 在
+     * 缺标题时会退回 cwd 目录名 / id；`updatedAt = max(createdAt, lastPromptAt)`，指令不算
+     * 「prompt」，所以指令开的会话要靠 Host 的 `sessionMeta[id].activityAt` 纠偏。
      * @param {object} ctx - 客户端上下文。
      * @param {string} sessionId - 会话 id。
-     * @returns {{title: string, running: boolean, updatedAt: number}|undefined} 展示信息。
+     * @param {Record<string, {activityAt?: number, title?: string}>} [metadata] - Host 会话元数据。
+     * @returns {{title: string, blank: boolean, running: boolean, updatedAt: number, activityAt: number}|undefined} 展示信息。
      */
-    function sessionInfo(ctx, sessionId) {
+    function sessionInfo(ctx, sessionId, metadata) {
       try {
         const sessions = ctx.get('sessions')
         const snapshot = sessions?.list?.getSnapshot?.()
         const summary = snapshot?.byId?.[sessionId]
-        if (summary === undefined || summary === null) return undefined
-        const durable = summary?.projectionValues?.title
-        const title =
-          typeof durable === 'string' && durable !== ''
-            ? durable
-            : summary.blank === true
-              ? // 空白会话的 displayTitle 是 cwd 的目录名（default / 1-tedb612 这种），
-                // 直接摆出来很难看，交给调用方回落到「新会话」。
-                ''
-              : typeof summary.displayTitle === 'string'
-                ? summary.displayTitle
-                : ''
+        const meta = metadata !== null && typeof metadata === 'object' ? metadata?.[sessionId] : undefined
+        const hostAt =
+          typeof meta?.activityAt === 'number' && Number.isFinite(meta.activityAt) ? meta.activityAt : 0
+        const hint = typeof meta?.title === 'string' ? meta.title.trim() : ''
+        if (summary === undefined || summary === null) {
+          // 快照里没有这条（冷会话 / 索引还没追上）：Host 元数据有东西就先画出来。
+          if (hostAt <= 0 && hint === '') return undefined
+          return { title: hint, blank: false, running: false, updatedAt: hostAt, activityAt: hostAt }
+        }
+        const blank = summary.blank === true
+        const title = blank ? '' : titleOfSummary(summary) || hint
+        const snapshotAt =
+          typeof summary.updatedAt === 'number' && Number.isFinite(summary.updatedAt) ? summary.updatedAt : 0
+        const activityAt = Math.max(snapshotAt, hostAt)
         return {
           title,
+          blank,
           running: summary.running === true,
-          updatedAt: typeof summary.updatedAt === 'number' ? summary.updatedAt : 0,
+          updatedAt: activityAt,
+          activityAt,
         }
       } catch {
         return undefined
@@ -1576,10 +1658,11 @@ window.__ModuleLoader__.load({
      * 会话行自己的状态点只说那一条，组一折起来就什么也看不见了。
      * @param {object} ctx - 客户端上下文。
      * @param {Array<{id?: string, running?: boolean}|string>} entries - 会话视图或 id。
-     * @param {(key: string) => string} t - 词典绑定（标题缺席时用「新会话」）。
+     * @param {(key: string) => string} t - 词典绑定（标题缺席时用「新会话」/「未命名」）。
+     * @param {Record<string, {activityAt?: number, title?: string}>} [metadata] - Host 会话元数据。
      * @returns {{ids: string[], states: string[], names: string[], count: number, running: number, pending: number}} 汇总。
      */
-    function activeDescendants(ctx, entries, t) {
+    function activeDescendants(ctx, entries, t, metadata) {
       const ids = []
       const states = []
       const names = []
@@ -1590,7 +1673,7 @@ window.__ModuleLoader__.load({
         const id = String(typeof entry === 'string' ? entry : entry?.id ?? '')
         if (id === '' || seen.has(id)) continue
         seen.add(id)
-        const info = sessionInfo(ctx, id)
+        const info = sessionInfo(ctx, id, metadata)
         const fallback =
           (typeof entry === 'object' && entry !== null && entry.running === true) || info?.running === true
         const status = statusOf(ctx, id, fallback)
@@ -1599,7 +1682,7 @@ window.__ModuleLoader__.load({
         states.push(status)
         if (status === 'running') running += 1
         else pending += 1
-        names.push(info?.title || t('sessionUntitled'))
+        names.push(sessionLabel(info, t))
       }
       return { ids, states, names, count: ids.length, running, pending }
     }
@@ -1769,13 +1852,19 @@ window.__ModuleLoader__.load({
         .sort((left, right) => (left[0] < right[0] ? 1 : left[0] > right[0] ? -1 : 0))
         .map(([day, sessions]) => ({
           day,
-          sessions: sessions.sort((left, right) => (right.createdAt ?? 0) - (left.createdAt ?? 0)),
+          // v0.12：同一天里按最后活动时间排（Host 已经算好 `activityAt`）；老版本 Host
+          // 没有这个字段时退回 createdAt，顺序仍然稳定。
+          sessions: sessions.sort((left, right) => {
+            const delta =
+              (right.activityAt ?? right.createdAt ?? 0) - (left.activityAt ?? left.createdAt ?? 0)
+            return delta !== 0 ? delta : String(left.id) < String(right.id) ? -1 : 1
+          }),
         }))
     }
 
     /**
      * 从客户端自己的快照算「无工作区的会话」。
-     * Host 的 `state` 带着按天分组时优先用它（那天是**创建那天**，和磁盘归档一致）；
+     * Host 的 `state` 带着按天分组时优先用它（v0.12 起那天是**最后活跃那天**）；
      * Host 还是旧版（没有 dayGroups）时用这条兜底——数据都在客户端快照里：
      * 会话清单 + 每条会话的 cwd/origin，加上工作区清单的 sessionIds。
      * @param {object} ctx - 客户端上下文。
@@ -2426,6 +2515,13 @@ window.__ModuleLoader__.load({
         }, [run, t])
 
         void tick
+        // v0.12：Host 给的会话元数据（真实活跃时间 + 指令标题提示）。旧版 Host 没有这一份，
+        // 就退化成只看 DSH 快照（更新前的行为）。
+        const sessionMeta =
+          state?.sessionMeta !== null && typeof state?.sessionMeta === 'object' ? state.sessionMeta : undefined
+        const infoOf = (id) => sessionInfo(ctx, id, sessionMeta)
+        const recency = (ids) => orderByRecency(ids, ctx, sessionMeta)
+        const labelOf = (info) => sessionLabel(info, t)
         const canCreate = state?.canCreate !== false
         // 任务会话只能在「任务默认工作区」里生：id 由 Host 给（旧版 Host 没有）。
         const taskWorkspaceId = typeof state?.taskWorkspaceId === 'string' ? state.taskWorkspaceId : ''
@@ -2435,7 +2531,7 @@ window.__ModuleLoader__.load({
         const canCreateSession = taskWorkspaceId !== '' && hasWorkspaceStarter
         // 旧版 Host 还活着（插件 Client 已更新、Host 还没重启）：说清楚，别让人点空。
         const staleHost = state !== null && taskWorkspaceId === ''
-        // Host 是新版就给按天分组（创建那天，和磁盘归档一致）；旧版 Host 没有 dayGroups，
+        // Host 是新版就给按天分组（v0.12 起按最后活跃那天，指令开的会话也能落到今天）；旧版 Host 没有 dayGroups，
         // 用客户端快照现算一份兜底——刷新页面就能用，不必等 Host 重启。
         const derived = React.useMemo(
           () => (Array.isArray(state?.dayGroups) ? null : deriveFromSnapshots(ctx, typeof state?.tasksRoot === 'string' ? state.tasksRoot : '')),
@@ -2466,7 +2562,9 @@ window.__ModuleLoader__.load({
         // ---- v0.10：上级行的「下面有任务在跑」汇总 ----
         // 一次算清每一层：按天 → 任务组；工作区 → 工作区组；两边 → 顶部「项目」。
         // 折叠不参与计算：折起来时上级正好该继续亮着；过滤参与（标的是你看得见的那些）。
-        const dayActive = new Map(dayGroups.map((group) => [group.day, activeDescendants(ctx, group.sessions, t)]))
+        const dayActive = new Map(
+          dayGroups.map((group) => [group.day, activeDescendants(ctx, group.sessions, t, sessionMeta)]),
+        )
         const taskActive = mergeActive([...dayActive.values()])
 
         /**
@@ -2476,7 +2574,7 @@ window.__ModuleLoader__.load({
          * @returns {string[]} 成员 id。
          */
         const workspaceMembers = (workspace) =>
-          orderByRecency(
+          recency(
             (Array.isArray(workspace?.sessionIds) ? workspace.sessionIds : []).filter((sessionId) => {
               if (hiddenIds.has(String(sessionId))) return false
               const sidebarArchived = archivedSessionIds.has(String(sessionId))
@@ -2484,11 +2582,13 @@ window.__ModuleLoader__.load({
               if (archivedFilter === 'only') return sidebarArchived
               return true
             }),
-            ctx,
           )
 
         const workspaceActive = new Map(
-          plainWorkspaces.map((workspace) => [workspace.id, activeDescendants(ctx, workspaceMembers(workspace), t)]),
+          plainWorkspaces.map((workspace) => [
+            workspace.id,
+            activeDescendants(ctx, workspaceMembers(workspace), t, sessionMeta),
+          ]),
         )
         const workspacesActive = mergeActive([...workspaceActive.values()])
         // 归档项目里的会话同样可能还在跑：分组标题与行上也要能看见。
@@ -2501,6 +2601,7 @@ window.__ModuleLoader__.load({
                 (sessionId) => !hiddenIds.has(String(sessionId)),
               ),
               t,
+              sessionMeta,
             ),
           ]),
         )
@@ -2541,8 +2642,8 @@ window.__ModuleLoader__.load({
           const items = []
           const byId = new Map()
           for (const entry of searchableSessions) {
-            const info = sessionInfo(ctx, entry.id)
-            const title = info?.title || t('sessionUntitled')
+            const info = infoOf(entry.id)
+            const title = labelOf(info)
             const hit =
               title.toLowerCase().includes(text) ||
               entry.workspace.toLowerCase().includes(text) ||
@@ -2560,11 +2661,11 @@ window.__ModuleLoader__.load({
               if (typeof raw.snippet === 'string' && raw.snippet !== '') known.snippet = raw.snippet
               continue
             }
-            const info = sessionInfo(ctx, id)
+            const info = infoOf(id)
             const entry = searchableSessions.find((candidate) => candidate.id === id)
             const item = {
               id,
-              title: info?.title || t('sessionUntitled'),
+              title: labelOf(info),
               workspace: entry?.workspace ?? '',
               sidebarArchived: entry?.sidebarArchived === true || archivedSessionIds.has(id),
               snippet: typeof raw.snippet === 'string' ? raw.snippet : '',
@@ -2576,10 +2677,7 @@ window.__ModuleLoader__.load({
           return {
             // 搜索结果也按最近活跃倒序（与内置侧栏的搜索同口径），
             // 免得「最近聊过的那条」被登记顺序埋在后头。
-            items: orderByRecency(
-              items.map((item) => item.id),
-              ctx,
-            )
+            items: recency(items.map((item) => item.id))
               .map((id) => byId.get(id))
               .slice(0, limit),
             pending: remoteSearch.pending === true,
@@ -2746,8 +2844,8 @@ window.__ModuleLoader__.load({
          * @returns {object} React 元素。
          */
         const renderSession = (sessionId, indent, key, options = {}) => {
-          const info = sessionInfo(ctx, sessionId)
-          const title = info?.title || t('sessionUntitled')
+          const info = infoOf(sessionId)
+          const title = labelOf(info)
           const status = statusOf(ctx, sessionId, info?.running === true)
           const sidebarArchived = options.sidebarArchived === true
           const isMenuOpen = menu !== null && menu.kind === 'session' && menu.id === sessionId
@@ -2899,7 +2997,7 @@ window.__ModuleLoader__.load({
             return h('div', { className: 'tsb-search-status', key: 'search-empty' }, message)
           }
           const rows = searchResults.items.map((item) => {
-            const info = sessionInfo(ctx, item.id)
+            const info = infoOf(item.id)
             return h(
               'div',
               { className: 'tsb-result', key: `search:${item.id}` },

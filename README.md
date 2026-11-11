@@ -22,7 +22,8 @@
 1. **「任务」底下是一个真实的默认工作区**（`<tasksRoot>`，默认 `$DSH_HOME/tasks`），
    只是侧栏把这份登记藏起来、统一画成「任务」；老的任务容器（`<root>/default` 等）一并认领；
 2. **两个 ＋ 各做一件事**：任务组的 ＋ 在任务默认工作区里起一条会话（走 DSH 原生的
-   `uiWorkspace.connectWorkspace`，不选目录、不起名字，复用空白会话），会话按**创建那天**归档；
+   `uiWorkspace.connectWorkspace`，不选目录、不起名字，复用空白会话），会话按**创建那天**归档
+   （侧栏按**最后活跃那天**分组，v0.12）；
    工作区行尾的 ＋ 在这个工作区里新建会话；工作区组的 ＋ 添加工作区；
 3. **样式跟 DSH 自己的侧栏走**：12px 正文 / 26-32px 行高 / 6px 圆角，
    颜色只用 `--dsw-alias-*` 令牌，状态点与内置的 StateDot 同一套语义；
@@ -630,6 +631,57 @@ function orderByRecency(sessionIds, summaries) {
 顺手清掉的还有 `keepMenu`（「留着菜单下一步用」的那个分支）和 `.tsb-confirm*` 一整套样式：
 菜单项现在点完就收，没有例外。
 
+## v0.12：指令开的会话按真实活跃排，标题不再顶项目名
+
+官人的原话是「如果新建会话是直接通过指令开始，那么这个会话在列表中展示就不会根据时间顺序
+展示在最上面，而是根据项目名称作为会话标题，错误展示在错误的时间里面」。
+
+这是 DSH 两个「只认第一句人话」的口径叠在一起：
+
+1. **标题**：`displayTitleOf(title, cwd, id)` 在没有持久标题时退回 **cwd 的目录名**（项目名），
+   再退回 id；而持久标题只由标题服务根据 `user/message` 且 `source.kind === 'user'` 的第一条
+   提示词生成；
+2. **时间**：`sessions.list` 的 `updatedAt = Math.max(header.createdAt, metadata.lastPromptAt ?? 0)`，
+   `lastPromptAt` **同样只认** `user/message` 且 `source.kind === 'user'`。
+
+`/goal`、`/permission` 这类**指令**走的是 `command/run` 事件，不是 `user/message`。于是用指令
+开的会话：
+
+- 永远没有持久标题 → 侧栏里看到的是「项目名」；
+- `updatedAt` 永远停在**创建时刻** → 侧栏按时间排时埋在老位置、行尾还显示创建日期。
+
+更糟的是 **DSH 的「新建会话」会复用该工作区里已有的空白会话**（`ui-workspace` 的 `reuse`
+分支）。如果那个空壳是几天前建的，今天用指令开起来之后，它仍然挂在几天前那一摞里——
+「错误展示在错误的时间里面」说的就是这个。
+
+修法分两半：
+
+| 症状 | 改法 |
+| --- | --- |
+| 标题显示项目名 | 客户端只认**持久标题**（`projectionValues.title` / `title`）；`displayTitle` 只有在不是 cwd 目录名、也不是会话 id 时才当标题。剩下的按「指令文本提示 → 未命名」兜底 |
+| 时间 / 位置错 | Host 另外算一份**最后活动时间**：活会话的事件 `event.time`（即时）+ `$DSH_HOME/sessions/<分组>/<会话>/session.v4.jsonl.zstd` 的 mtime（重启后也认得）+ 创建时间，取最大；按它排序、显示相对时间，并按**最后活跃那天**分组 |
+
+**指令文本提示**：`/goal` 的那句话其实就是最好的标题。Host 从 `goal/change` 的
+`goal.objective`（以及 `command/run` 里 `name === 'goal'` 的 `args`）取第一行、压成一行、
+截到 80 字，落盘到：
+
+```
+$DSH_HOME/task-folders/session-hints.json → {"version":1,"hints":[{"id":"session-…","title":"…","at":…}]}
+```
+
+活会话每次 `state` 还会顺手问一遍 `ctx.goals.get(agent)`，把**当前 goal 的 objective** 补进提示——
+插件重启前就开着的 goal 会话（事件流里没赶上）也能立刻拿到标题，不必等下一次 `goal/change`。
+
+它只影响侧栏怎么画：不写会话日志、不改 DSH 的标题；DSH 真生成了持久标题（`session/title`）
+时提示立刻让位；`/permission` 这类命令的参数不当标题。坏文件 / 写不进去一律降级，侧栏不白屏。
+
+`state` 因此多一份 `sessionMeta`（会话 id → `{activityAt, title?}`），客户端拿它给工作区成员 /
+搜索结果排序、补标题；旧版 Host 没有这一份时退回原行为（只看 DSH 快照）。
+
+顺带把任务区的按天分组也换成「最后活跃那天」：一个 09-25 建的空壳今天才被指令开起来，现在会
+落到「今天」，而不是一直埋在 09-25 那一摞里。磁盘上的按天副本仍按创建日归档（`archiveDay`
+字段保留原日期），分组只影响怎么画。
+
 ## 顺带一提：为什么「项目归档」不写进工作区登记
 
 `workspaceRegistry` 是 DSH 的持久登记，删一次就真的没了（虽然目录和日志还在）。
@@ -658,8 +710,8 @@ function orderByRecency(sessionIds, summaries) {
 - **子代理不归档**：`origin: 'subagent'` 的会话跳过。
 - **删除是唯一会动文件的动作**（v0.6）：它只处理被点名的那一条会话，默认进回收站，
   正在干活的会话直接拒绝——其余任何时候插件都不删别人的东西。
-- **跨天不搬家**：会话归档在**创建那天**的文件夹；第二天继续聊仍写同一份日志（时间戳真实），
-  侧栏也始终按创建那天把它归在那一天底下。
+- **跨天不搬家**：会话归档在**创建那天**的文件夹；第二天继续聊仍写同一份日志（时间戳真实）。
+  v0.12 起侧栏按**最后活跃那天**分组——聊过就浮到今天，磁盘上的日期文件夹不动（`archiveDay` 保留原值）。
 
 ## 安装
 
@@ -730,25 +782,31 @@ Host 侧改动默认要重启；改完想立刻生效又不想重启，可以用
   "archivedDayGroups": [],                 // v0.5：已归档会话，结构同 dayGroups
   "archivedSessionIds": [],                // v0.5：DSH 里归档了的会话 id（客户端据此换菜单项）
   "workspaces": [{ "id": "w1", "title": "我的项目", "path": "F:\\…", "sessionIds": ["session-…"], "archived": false }],
+  // v0.12：会话 id → {activityAt, title?}；客户端据此排序 / 补标题（旧版 Host 没有这一份）
+  "sessionMeta": { "session-17fd790f…": { "activityAt": 1794388924408, "title": "日志输出如下内容……" } },
   "totals": { "sessions": 3, "archivedSessions": 0, "archivedWorkspaces": 0, "days": 2, "workspaces": 1, "workspaceSessions": 1 }
 }
 ```
 
-标题由客户端从自己的会话快照解析（`displayTitle` / `projectionValues.title`），
-Host 只负责「哪些会话属于任务、归在哪一天」。
+标题由客户端从自己的会话快照解析（持久标题 `projectionValues.title` / `title`；v0.12 起
+`displayTitle` 退回项目名 / id 的不算标题，交给 `sessionMeta.title` 或「未命名」兜底）。
+Host 负责「哪些会话属于任务、归在哪一天」，以及 v0.12 的「最后活动时间」与指令文本提示。
 
 ## 测试
 
 ```sh
-node --test --test-isolation=none test/paths.test.js test/sessions.test.js test/scan.test.js test/archive.test.js test/session-files.test.js test/state.test.js test/project-archive.test.js test/skills.test.js test/route.test.js test/client.test.js test/edit-resend.test.js
+node --test --test-isolation=none test/paths.test.js test/sessions.test.js test/scan.test.js test/archive.test.js test/session-files.test.js test/state.test.js test/activity.test.js test/session-hints.test.js test/project-archive.test.js test/skills.test.js test/route.test.js test/client.test.js test/edit-resend.test.js
 ```
 
-159 个用例，覆盖：本地时区日期、目录名清洗、任务判定（cwd 在任务区 / 普通工作区 / 子代理 / 注册表缺席）、
+177 个用例，覆盖：本地时区日期、目录名清洗、任务判定（cwd 在任务区 / 普通工作区 / 子代理 / 注册表缺席）、
 按天归档扫描（倒序、坏 `session.json`、非日期目录不混入、新旧两种布局）、DSH 格式写入
 （多帧 zstd、seq 去重、崩溃后从日志恢复进度、大 payload）、删除落盘（按分组找日志、三处目标、
 回收站与 manifest、`trash:false` 直删、越界目录护栏、30 天清理、重复删除幂等、日志搬不动就整单放弃）、
 项目归档存储（落盘、幂等、坏 JSON、写失败回滚、垃圾 id）、侧栏状态装配（按天分组、归档会话单列一组、项目归档只打标记、
-任务区工作区过滤、归档兜底、冷会话）、路由全链路（403/405/404/400、自动归档、补接归档、
+任务区工作区过滤、归档兜底、冷会话、v0.12 按最后活跃那天分组与 `sessionMeta`）、
+活动时间索引（日志 mtime / 活会话事件 / TTL 缓存 / forget / 空目录降级）、
+指令标题提示（第一行清洗与截断、`goal/change` 与 `command/run` 取词、`/permission` 不当标题、
+活会话从 `ctx.goals` 补、落盘与重启读回、去重、条数上限、坏文件降级）、路由全链路（403/405/404/400、自动归档、补接归档、
 只留一份任务登记、空壳会话归档、根上会话挂成员表、注册表晚就绪重试、打开文件夹的路径计算与注入替身
 （测试断言交给「打开」的路径，不真弹资源管理器）、
 删除会话的三处搬运与摘登记、忙则 409、坏 id 400、找不到的会话幂等）、
@@ -757,7 +815,8 @@ node --test --test-isolation=none test/paths.test.js test/sessions.test.js test/
 上级「下面有任务在跑」标记（任务组 / 按天 / 工作区组 / 工作区行 / 顶部「项目」、按 id 去重、
 只在跑着或等回话时出现、折叠与窄条照旧、状态变化后重画、胶囊与令牌）、
 搜索入口与本地/全文结果、归档过滤三档、会话行「…」归档/取消归档、删除的二次确认（顶部提示条）与 deleteSession、
-项目归档与恢复、归档徽标、顶部提示条（删除确认 / 删成功 / 复制反馈）、按最近活跃倒序（工作区成员与搜索结果））、
+项目归档与恢复、归档徽标、顶部提示条（删除确认 / 删成功 / 复制反馈）、按最近活跃倒序（工作区成员与搜索结果）、
+v0.12 标题不再拿项目名兜底 / Host 活动时间与标题提示 / 持久标题优先）、
 对话流「编辑重发」（停止 / 失败 / 进程中断三种才给入口、跑完与撞上限不给、只认最新一轮、
 只认人工 user 消息、按回合找流节点、找不到就不画、点铅笔就地进入编辑并预填原文、
 编辑时打 `data-tsr-editing` 标记 / 收起清掉、重发 = setDraft + submit、空白不可发、
@@ -773,7 +832,7 @@ Host 半侧的改动（新路由、登记任务工作区、归档触发、删除
 关一次再开一次（会 dispose + 重新从磁盘 import）。客户端半侧刷新页面即可。
 
 客户端对旧版 Host 有两处兜底：`state` 没有 `dayGroups` 时用客户端快照现算分组
-（按**最后活跃那天**，新版 Host 按**创建那天**）；**没有 `taskWorkspaceId` 的旧版 Host
+（按**最后活跃那天**；新版 Host v0.12 起也是按最后活跃那天）；**没有 `taskWorkspaceId` 的旧版 Host
 不提供「建任务会话」**——任务会话必须有工作区才开得了口，所以这时 ＋ 是禁用的，侧栏会提示
 「重启 DSH 后生效」，而不是偷偷建一条说不了话的无主会话。还没重启的 v0.5 Host 不认
 `deleteSession`：点「删除」会得到一句「unknown method」的提示，重启 DSH 后即生效。
