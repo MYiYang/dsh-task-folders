@@ -1873,32 +1873,44 @@ test('当前会话那一行挂 is-current + aria-current：主视图开着哪条
   assert.equal(other.props['aria-current'], undefined)
 })
 
-test('锚点行说出当前会话的归属：任务按天 / 工作区按项目名', async () => {
+test('入口先说清是哪条会话（「当前会话 · 标题」），再写出它在哪（任务 / 项目）', async () => {
   const taskBundle = await clientWithCurrent('session-aaaa1111', 'anchor-task')
   const taskTree = renderFrom(taskBundle, fixtureState())
   const anchor = anchorButton(taskTree)
-  assert.ok(anchor, '有当前会话就有一行锚点')
-  assert.equal(collectText(anchor).join(''), '任务 · 今天', '任务会话：任务 · 今天')
-  assert.match(String(anchor.props.title), /你在这里/, '悬停说清这是「你在这里」')
+  assert.ok(anchor, '有当前会话就有这一行')
+  assert.equal(anchor.props.className, 'tsb-anchor')
+  // 这一行分成四格：准星 / 「当前会话」/ 标题 / 归属
+  const parts = anchor.children
+    .map((child) => (child?.props?.className ?? '') || (typeof child === 'string' ? child : ''))
+    .filter((part) => part !== '')
+  assert.deepEqual(parts, ['tsb-anchor-icon', 'tsb-anchor-prefix', 'tsb-anchor-sep', 'tsb-anchor-title', 'tsb-anchor-loc'])
+  const text = collectText(anchor).join('')
+  assert.match(text, /^当前会话·聊聊登录重构/, '先是「当前会话 · <标题>」，标题取会话自己的名字')
+  assert.match(text, /任务 · 今天$/, '右边才是归属：任务按天')
+  assert.match(String(anchor.props.title), /当前会话：聊聊登录重构/, '悬停说清是哪条')
+  assert.match(String(anchor.props.title), /你在这里：任务 · 今天/, '再说它在哪')
   assert.match(String(anchor.props.title), /定位当前会话/, '并且说明点它会定位')
+  assert.equal(anchor.props['aria-label'], '当前会话：聊聊登录重构（任务 · 今天）')
   assert.equal(anchor.props.disabled, false)
 
   const wsBundle = await clientWithCurrent('session-cccc3333', 'anchor-workspace')
-  const wsTree = renderFrom(wsBundle, workspaceOnlyState())
-  assert.equal(collectText(anchorButton(wsTree)).join(''), '我的项目', '工作区会话：写项目名')
+  const wsText = collectText(anchorButton(renderFrom(wsBundle, workspaceOnlyState()))).join('')
+  assert.match(wsText, /当前会话·别的项目会话/, '工作区里的会话也一样：先说哪条')
+  assert.match(wsText, /我的项目$/, '再写项目名')
 })
 
 test('没有打开的会话就没有锚点行：不占那一行的位置', () => {
   assert.equal(anchorButton(render(fixtureState())), undefined)
 })
 
-test('当前会话不属于侧栏里任何项目 / 任务：锚点如实说「不在侧栏里」，按钮不可点', async () => {
+test('当前会话不属于侧栏里任何项目 / 任务：入口照旧在，右边如实写「不在侧栏里」且不可点', async () => {
   const bundle = await clientWithCurrent('session-eeee5555', 'anchor-missing')
   const anchor = anchorButton(renderFrom(bundle, fixtureState()))
-  assert.ok(anchor, '锚点行照旧在（找不到落点也是一种答案）')
-  assert.equal(collectText(anchor).join(''), '不在侧栏里')
+  assert.ok(anchor, '入口照旧在（「不在侧栏里」也是一种答案）')
+  assert.match(collectText(anchor).join(''), /^当前会话·远程搜到的/, '先说是哪条')
+  assert.match(collectText(anchor).join(''), /不在侧栏里$/, '再如实说找不到落点')
   assert.equal(anchor.props.disabled, true, '点不动，别给空承诺')
-  assert.equal(anchor.props['aria-label'], '你在这里：不在侧栏里')
+  assert.equal(anchor.props['aria-label'], '当前会话：远程搜到的（不在侧栏里）')
 })
 
 test('点锚点行 = 定位：展开折着的项目组，再排一次「滚到眼前 + 闪一下」', async () => {
@@ -1943,7 +1955,7 @@ test('会话排在「展开其余 N 个会话」之外：定位会连那一段�
   const tree = renderFrom(bundle, bulkStateEndingWith(12, 'session-bbbb2222'), { wide: true }, { 4: false, 15: false }, calls)
   const anchor = anchorButton(tree)
   assert.ok(anchor)
-  assert.equal(collectText(anchor).join(''), '任务 · 今天')
+  assert.match(collectText(anchor).join(''), /任务 · 今天$/, '归属还是「任务 · 今天」')
   anchor.props.onClick()
 
   const slots = calls.map(([index]) => index)
@@ -1958,7 +1970,7 @@ test('归档会话被「隐藏已归档」滤掉时：点锚点先切到「全�
   const tree = renderFrom(bundle, fixtureWithArchives(), { wide: true }, undefined, calls)
   const anchor = anchorButton(tree)
   assert.ok(anchor)
-  assert.equal(collectText(anchor).join(''), '任务 · 今天', '归档的会话也认得出在哪天')
+  assert.match(collectText(anchor).join(''), /任务 · 今天$/, '归档的会话也认得出在哪天')
   anchor.props.onClick()
 
   assert.deepEqual(calls[0], [9, 'show'], '第一件事是把视图档位切到「全部对话」（9 = archivedFilter）')
@@ -2179,7 +2191,8 @@ test('会话挂在已归档项目里：锚点说得出项目名 + 「已归档�
   const tree = renderFrom(bundle, archivedProjectOnlyState(), { wide: true }, { 11: false }, calls)
   const anchor = anchorButton(tree)
   assert.ok(anchor, '归档项目里的会话也有锚点')
-  assert.equal(collectText(anchor).join(''), '归档的老项目·已归档', '项目名 + 已归档角标')
+  assert.match(collectText(anchor).join(''), /当前会话·别的项目会话/, '先说哪条')
+  assert.match(collectText(anchor).join(''), /归档的老项目已归档$/, '再写项目名 + 已归档角标')
   assert.equal(anchor.props.disabled, false, '点得动——它确实能带你到那个项目')
 
   anchor.props.onClick()

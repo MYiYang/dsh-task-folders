@@ -109,9 +109,12 @@
  * 这样能确定当前会话是哪里的」）：主视图里开着的那条会话，侧栏得知道它在哪、并且能带人回去。
  *   1. **「你在这里」**：那条会话的行挂 `is-current`（主色左侧竖条 + label-primary 标题 +
  *      `aria-current`），一眼看出「就是这条」；
- *   2. **锚点行**：常驻头（`.tsb-top`）里多一行 `.tsb-anchor`——十字准星 + 归属
- *      （「任务 · 今天」/「我的项目」/「归档的老项目 · 已归档」，找不到时如实说「不在侧栏里」）。
- *      点它 = 定位：把折着的祖先一层层展开、把行滚进视野正中、闪一下；
+ *   2. **「当前会话」入口**：常驻头（`.tsb-top`）里多一行 `.tsb-anchor`——十字准星 +
+ *      `当前会话 · <标题>`，右边贴一枚归属（「任务 · 今天」/「我的项目」/「已归档」，
+ *      找不到时如实说「不在侧栏里」）。点它 = 定位到这条会话在树里的**对应锚点**：
+ *      把折着的祖先一层层展开、把行滚进视野正中、闪一下。
+ *      （v0.13 第一版这里只写归属、没有「当前会话」四个字，官人的原话是「设计的有问题，
+ *      应该是有个当前会话，点击定位到对应锚点」——先说是哪条，再谈它在哪。）
  *   3. **打开会话就自动定位**：主视图换到哪条会话（无论从哪里打开：侧栏行、搜索结果、
  *      DSH 自己的入口），只要那条会话当前**看不见**（组折着 / 被「展开其余 N 个」折掉 /
  *      被归档过滤藏起 / 在「已归档项目」里），就自动展开它所属的项目或任务组并滚到眼前；
@@ -518,7 +521,8 @@ window.__ModuleLoader__.load({
       // —— v0.10：上级行上的「下面有任务在跑」标记 ——
       runningBelow: '下面有 {n} 个任务在跑',
       waitingBelow: '下面有 {n} 个任务等你回话',
-      // —— v0.13：会话锚点（「你在这里」+ 点一下就定位打开它的项目 / 任务）——
+      // —— v0.13：会话锚点（「当前会话」入口 + 点一下就定位到它在树里的锚点）——
+      currentSession: '当前会话',
       youAreHere: '你在这里',
       locateCurrent: '定位当前会话',
       locateProject: '定位到所在项目',
@@ -665,7 +669,8 @@ window.__ModuleLoader__.load({
       // —— v0.10: "a task below is running" marks on ancestor rows ——
       runningBelow: '{n} running below',
       waitingBelow: '{n} waiting for you below',
-      // —— v0.13: session anchor ("you are here" + click to open its project / task) ——
+      // —— v0.13: session anchor ("current session" entry + click to jump to its anchor) ——
+      currentSession: 'Current session',
       youAreHere: 'You are here',
       locateCurrent: 'Locate the current session',
       locateProject: 'Locate its project',
@@ -734,16 +739,19 @@ window.__ModuleLoader__.load({
    user-select: none;
  }
  .tsb-caption-icon { flex: 0 0 auto; color: var(--dsw-alias-label-tertiary); }
- /* —— v0.13：锚点行（「你在这里」）——
-    常驻头里的一行小字：十字准星 + 当前会话的归属（「任务 · 今天」/「我的项目」）。
-    它不滚、不折，也不随分组收起而消失——任务组和工作区组全折起来时，这是唯一还在告诉你
-    「当前会话在哪」的地方。点它 = 定位：展开祖先、滚到眼前、闪一下。
-    几何照抄内建侧栏的次要行（22px 高、11px 字、tertiary 灰），比会话行还轻一档。 */
+ /* —— v0.13.1：常驻头里的「当前会话」入口 ——
+    一行小字：十字准星 + 「当前会话 · <标题>」，右边贴一枚归属（「任务 · 今天」/「我的项目」）。
+    它是**一个能按的东西**，不是一个标签：点它 = 定位到这条会话在树里的那个锚点
+    （展开祖先、滚到眼前、闪一下）。
+    为什么不只写归属：人先要知道「是哪条」，再关心「在哪」；只写「任务 · 今天」的时候，
+    这行看起来像说明文字，没人会去点它。
+    它不滚、不折，也不随分组收起而消失——任务组和工作区组全折起来时，这是唯一还找得到回程的地方。
+    几何比会话行还轻一档（22px 高、11px 次要字）。 */
  .tsb-anchor {
    flex: 0 0 auto;
    display: flex;
    align-items: center;
-   gap: 5px;
+   gap: 4px;
    box-sizing: border-box;
    width: 100%;
    min-width: 0;
@@ -764,14 +772,29 @@ window.__ModuleLoader__.load({
    color: var(--dsw-alias-label-secondary);
  }
  .tsb-anchor-icon { flex: 0 0 auto; color: var(--dsw-alias-state-business-primary); }
- .tsb-anchor-label {
-   flex: 0 1 auto;
+ .tsb-anchor-prefix { flex: 0 0 auto; color: var(--dsw-alias-label-tertiary); }
+ .tsb-anchor-sep { flex: 0 0 auto; color: var(--dsw-alias-label-caption); }
+ /* 标题是这一行的主语：它吃掉剩余宽度，先被挤的永远是它（后面的归属留着有用）。 */
+ .tsb-anchor-title {
+   flex: 1 1 auto;
    min-width: 0;
    overflow: hidden;
    text-overflow: ellipsis;
    white-space: nowrap;
+   color: var(--dsw-alias-label-secondary);
  }
- .tsb-anchor-sep { flex: 0 0 auto; color: var(--dsw-alias-label-caption); }
+ /* 归属贴右边：最大占 45% 宽，挤压时它先让位（shrink 2）——标题才是这一行的主语。 */
+ .tsb-anchor-loc {
+   flex: 0 2 auto;
+   max-width: 45%;
+   min-width: 0;
+   margin-left: auto;
+   overflow: hidden;
+   text-overflow: ellipsis;
+   white-space: nowrap;
+   color: var(--dsw-alias-label-tertiary);
+ }
+ .tsb-anchor:hover:not(:disabled) .tsb-anchor-title { color: var(--dsw-alias-label-primary); }
  .tsb-anchor-tag {
    flex: 0 0 auto;
    padding: 0 4px;
@@ -3229,40 +3252,52 @@ window.__ModuleLoader__.load({
           )
 
         /**
-         * 锚点行（v0.13）：「你在这里」+ 当前会话的归属（「任务 · 今天」/「我的项目」）。
+         * 常驻头里的「当前会话」入口（v0.13.1）：十字准星 + `当前会话 · <标题>`，右边贴归属。
          *
-         * 为什么挂在常驻头里而不是列表里：任务组与工作区组都能折起来，一折起来列表里就什么都
-         * 不剩——而「当前会话在哪」这件事不该跟着折叠一起消失。这一行不滚、不折、不参与过滤。
-         * 归属写具体的那个（项目名 / 任务 + 哪天；归档的项目再挂一枚「已归档」角标），
-         * 找不到就如实说「不在侧栏里」——那也是一种答案（比如会话属于别的工作区）。
-         * 点它 = 定位：展开折着的祖先、把行滚到眼前、闪一下。
+         * 为什么是「当前会话」而不是只写归属：人先要知道**是哪条**，再关心它在哪。原来那一行
+         * 只写「任务 · 今天」/「我的项目」，看着像一枚说明标签，不像一个能按的入口——官人的原话
+         * 是「应该是有个当前会话，点击定位到对应锚点」，说的就是这个：这一行得先说清是哪条会话，
+         * 点它再把侧栏带到它在树里的那个锚点上（展开祖先 → 滚到眼前 → 闪一下）。
+         *
+         * 归属仍然留着（右边 11px 小字，最多占一半宽）：第一版要回答的「当前会话是哪里的」
+         * 就靠它，只是不再喧宾夺主。找不到落点时那一格写「不在侧栏里」，整个按钮置灰。
          * @returns {object|null} React 元素（没有打开的会话时 null）。
          */
         const renderAnchor = () => {
           if (currentId === undefined) return null
-          // 落点只认 `anchorTarget`（上面算好那一份）：锚点行与归档项目行必须说的是同一件事。
+          // 落点只认 `anchorTarget`（上面算好那一份）：这一行与归档项目行必须说的是同一件事。
           const target = anchorTarget
-          let label = t('locateMissing')
+          const currentTitle = labelOf(infoOf(currentId))
+          let where = t('locateMissing')
           let tag = ''
           if (target !== null && target.kind === 'task') {
-            label = `${t('tasks')} · ${dayLabel(target.day, t)}`
+            where = `${t('tasks')} · ${dayLabel(target.day, t)}`
           } else if (target !== null) {
             const workspace = allWorkspaces.find((candidate) => String(candidate?.id) === target.workspaceId)
             const name = typeof workspace?.title === 'string' ? workspace.title : ''
-            label = name !== '' ? name : target.workspaceId
+            where = name !== '' ? name : target.workspaceId
             tag = target.archived ? t('archivedBadge') : ''
           }
           // 归档项目里没有会话行可指：文案改成「定位到所在项目」，别承诺翻出会话。
-          const action = target === null ? t('locateMissingHint') : target.kind === 'workspace' && target.archived ? t('locateProject') : t('locateCurrent')
-          const title = [`${t('youAreHere')}：${label}`, `${labelOf(infoOf(currentId))}`, action].join('\n')
+          const action =
+            target === null
+              ? t('locateMissingHint')
+              : target.kind === 'workspace' && target.archived
+                ? t('locateProject')
+                : t('locateCurrent')
+          const tooltip = [
+            `${t('currentSession')}：${currentTitle}`,
+            `${t('youAreHere')}：${where}${tag === '' ? '' : ` · ${tag}`}`,
+            action,
+          ].join('\n')
           return h(
             'button',
             {
               className: 'tsb-anchor',
               type: 'button',
               key: 'anchor',
-              title,
-              'aria-label': `${t('youAreHere')}：${label}`,
+              title: tooltip,
+              'aria-label': `${t('currentSession')}：${currentTitle}（${where}）`,
               disabled: target === null,
               onClick: () => {
                 if (target === null) return
@@ -3272,8 +3307,10 @@ window.__ModuleLoader__.load({
               },
             },
             h('span', { className: 'tsb-anchor-icon' }, targetIcon(12)),
-            h('span', { className: 'tsb-anchor-label' }, label),
-            tag === '' ? null : h('span', { className: 'tsb-anchor-sep' }, '·'),
+            h('span', { className: 'tsb-anchor-prefix' }, t('currentSession')),
+            h('span', { className: 'tsb-anchor-sep' }, '·'),
+            h('span', { className: 'tsb-anchor-title' }, currentTitle),
+            h('span', { className: 'tsb-anchor-loc' }, where),
             tag === '' ? null : h('span', { className: 'tsb-anchor-tag' }, tag),
           )
         }
