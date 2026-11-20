@@ -4,6 +4,9 @@
  * 形态（对齐 DSH 自己的侧栏语言：12px 行、26-32px 行高、6px 圆角、`--dsw-alias-*` 令牌）：
  *
  *   项目                                  ← 行首文件夹图标（「项目」这块就是个目录）
+ *   最近  ▾                      3       ← v0.14：树顶按时间排的一份入口（默认 5 条，可折起）
+ *     · 昨天聊的那条              昨天    ← 点它 = 打开 + 把下面树里那行展开、滚到眼前、闪一下
+ *     查看更多 (2)
  *   任务  ▾                    ＋        ← 「任务」= 任务区默认工作区名下的会话，按天分组
  *     今天                                 ← 按天分隔（今天 / 昨天 / YYYY-MM-DD）
  *       · 聊聊登录重构            3 分钟   ← 行首是状态点（运行中/有新结果/待确认/空闲）
@@ -126,6 +129,18 @@
  *      的落点是它所属的**项目行**（`ws:<id>`）：展开这一组、滚到它、闪它。落点只有一份
  *      （`anchorTarget`）——同一个会话不会既标会话行又标项目行。
  * 定位全程只动客户端状态（展开 / 滚动 / 高亮），不写 Host、不碰会话日志。
+ *
+ * v0.14 在树顶补一块「最近」（官人：「有个最近，最近的会话在这里，按时间排序，
+ * 点击可以定位到对应实际位置」）：
+ *   1. **位置**：滚动区第一块（`.tsb-scroll` 首个子节点），在「任务 / 工作区」之上——
+ *      参考设计就是「最近 / 分组」两段，最近在上、不分组，纯按时间；
+ *   2. **内容**：树里**画得出来的**会话（任务区 + 普通工作区成员，跟着归档过滤走、去重后
+ *      按最近活跃倒序），默认 5 条，「查看更多 (N)」一次多铺 20 条；一条都没有就整块不画；
+ *   3. **点击 = 打开 + 定位**：先收搜索（开着的话），再 `openSession`，再 `locateSession(force)`——
+ *      折着的祖先展开、行滚到眼前、闪一下，与「搜索结果点开」同一条路；
+ *   4. **只当入口，不当第二个断言**：行上用 `data-recent-session-id`，不登记 `rowNodes`、
+ *      不挂 `is-current` / `aria-current`——「你在这里」只属于树上那行（`anchorTarget` 是单值）。
+ * 归档项目那一组不画会话行，所以那里的会话不往「最近」里塞：点了只能停在项目上，等于骗人。
  */
 window.__ModuleLoader__.load({
   id: 'dsh-task-folders',
@@ -363,6 +378,21 @@ window.__ModuleLoader__.load({
      * 一天几十条的量放宽到 10：一屏之内看得完，再长就折起来。
      */
     const SESSION_LIMIT = 10
+    /**
+     * 「最近」默认先列几条，其余折进「查看更多 (N)」。
+     *
+     * 参考设计里那一块是**入口**不是列表：铺 5 条足够「接着上次」，多出来的照旧在下面的树里。
+     * 5 这个数也与内置侧栏的 `SESSION_WATERMARK_BASE` 对齐。
+     */
+    const RECENT_LIMIT = 5
+    /**
+     * 「查看更多」每点一次多铺几条。
+     *
+     * 不一次全摊开：参考图里是 181 条——全铺出来，下面那棵树就被顶到十屏以外，
+     * 而「收起」还挂在最底下，等于关不掉。一页 20 条，够翻、也还回得去；
+     * 真想收，点组标题「最近」把整块折起来就行。
+     */
+    const RECENT_PAGE = 20
     /** 折起来也一定要露脸的状态：跑着的、等着你回话的，藏起来等于让人干等。 */
     const ATTENTION_STATES = new Set(['running', 'pending'])
     /** 弹出菜单的宽度（视图选项 / 会话「…」/ 工作区「…」都是同一档）。 */
@@ -529,6 +559,11 @@ window.__ModuleLoader__.load({
       locateMissing: '不在侧栏里',
       locateMissingHint: '这条会话不属于侧栏里的任何项目或任务',
       locateUnfiltered: '这条会话被归档过滤藏起来了，已切到「全部对话」',
+      // —— v0.14：「最近」（树顶上一块按时间排的入口，点一条就定位回它的位置）——
+      recent: '最近',
+      recentMore: '查看更多 ({n})',
+      recentLess: '收起',
+      recentHint: '点击定位到它在树里的位置',
     }
 
     const en = {
@@ -677,6 +712,10 @@ window.__ModuleLoader__.load({
       locateMissing: 'Not in the sidebar',
       locateMissingHint: 'This session belongs to no project or task shown in the sidebar',
       locateUnfiltered: 'That session was hidden by the archive filter — switched to "All conversations"',
+      recent: 'Recent',
+      recentMore: 'Show {n} more',
+      recentLess: 'Show less',
+      recentHint: 'Click to locate it in the tree',
     }
 
     /**
@@ -686,7 +725,8 @@ window.__ModuleLoader__.load({
      *
      * 缩进只有一列台阶，量出来的（都算上 `.tsb-root` 的 6px 左内边距）：
      *   「项目」标题、任务 / 工作区组标题    8px   ← 目录层级的最外层，往左顶
-     *   按天小标题、工作区行（文件夹）      16px   ← 组标题的子项，右移一格
+     *   按天小标题、工作区行（文件夹）、
+     *   「最近」里的会话行                  16px   ← 组标题的子项，右移一格（v0.14）
      *   任务区里的会话                      26px
      *   工作区里的会话                      34px
      * 原来标题和子项都落在 14px，左边缘齐平，层级读不出来——这一步就是把它拉开。
@@ -941,6 +981,18 @@ window.__ModuleLoader__.load({
  }
  .tsb-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
  .tsb-meta { flex: 0 0 auto; font-size: 12px; line-height: 20px; color: var(--dsw-alias-label-tertiary); }
+ /* —— v0.14：「最近」——
+    树顶那一块入口：行几何与会话行一致（.tsb-row 的 32px / 圆角 / hover），左边与工作区行
+    同一条竖线（10px）。右边那格写「今天 / 昨天 / M月D日」——这一块横跨好几天，
+    写「3 分钟」还得在脑子里换算成哪天。日期比会话行的相对时间再轻一档（11px / caption 灰）。 */
+ .tsb-recent-date {
+   font-size: 11px;
+   line-height: 15px;
+   color: var(--dsw-alias-label-caption);
+ }
+ /* 「查看更多 (N)」：几何照抄「展开其余 N 个会话」（同一个 .tsb-more-sessions），
+    另挂一个自己的类，样式与测试都认得出这一颗属于「最近」。 */
+ .tsb-recent-more { color: var(--dsw-alias-label-tertiary); }
  .tsb-day {
    display: flex;
    align-items: center;
@@ -1714,6 +1766,28 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * 「最近」那一栏右侧的日期：今天 / 昨天 / `M月D日`（隔年补上年份）。
+     *
+     * 为什么不照会话行写「3 分钟」：这一块横跨好几天，人看它是在问「哪天聊的」；
+     * 精确到分钟反而要在脑子里换算。今天的两条写「今天」也够——真要精确，树里那行还在。
+     * @param {number} value - epoch 毫秒。
+     * @param {(key: string) => string} t - 词典绑定。
+     * @returns {string} 展示文本（拿不到时间时是空串）。
+     */
+    function shortDay(value, t) {
+      if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return ''
+      const day = dayKey(value)
+      if (day === dayKey(Date.now())) return t('today')
+      const yesterday = new Date()
+      yesterday.setDate(yesterday.getDate() - 1)
+      if (day === dayKey(yesterday.getTime())) return t('yesterday')
+      const date = new Date(value)
+      const sameYear = date.getFullYear() === new Date().getFullYear()
+      const monthDay = `${date.getMonth() + 1}月${date.getDate()}日`
+      return sameYear ? monthDay : `${date.getFullYear()}年${monthDay}`
+    }
+
+    /**
      * 一个路径的最后一截（会话 cwd 的目录名）。
      * @param {unknown} target - 路径。
      * @returns {string} 目录名；不是字符串或空路径时是空串。
@@ -2196,6 +2270,13 @@ window.__ModuleLoader__.load({
         const [locateTarget, setLocateTarget] = React.useState(null)
         // 正在闪的那条会话 id（闪完自己清掉，见下面的自消 effect）。
         const [flashId, setFlashId] = React.useState('')
+        // —— v0.14：「最近」——
+        // 这一块默认开着（它是人进侧栏第一眼要看的「接着上次」），但能折起来——
+        // 有些人的树本来就只有几行，不想被一块入口占着。
+        const [recentOpen, setRecentOpen] = React.useState(true)
+        // 「查看更多 (N)」一页页铺开：这里存的是**当前铺几条**（不是布尔）——
+        // 参考图里那一栏能有一百多条，一次全摊开会把下面那棵树顶得没影。
+        const [recentShown, setRecentShown] = React.useState(RECENT_LIMIT)
 
         const searchInput = React.useRef(null)
         /** 常驻头（标题行 + 搜索框）：点到它外面才算「离开搜索」，见下面的 mousedown 监听。 */
@@ -2870,6 +2951,50 @@ window.__ModuleLoader__.load({
         const anchorTarget = currentId === undefined ? null : locateOf(currentId)
 
         /**
+         * 一条会话在树里的归属文案：`任务 · 今天` / `我的项目` /「不在侧栏里」。
+         *
+         * v0.14 起两处共用这一份：常驻头的锚点行（先说哪条、再说在哪）与「最近」行的悬停提示。
+         * 两边各写一套判据的话，「任务 · 今天」这种话迟早会在一处变成「我的项目」。
+         * @param {object|null} target - `locateOf` 的结果。
+         * @returns {string} 展示文案。
+         */
+        const whereOf = (target) => {
+          if (target === null) return t('locateMissing')
+          if (target.kind === 'task') return `${t('tasks')} · ${dayLabel(target.day, t)}`
+          const workspace = allWorkspaces.find((candidate) => String(candidate?.id) === target.workspaceId)
+          const name = typeof workspace?.title === 'string' ? workspace.title : ''
+          return name !== '' ? name : target.workspaceId
+        }
+
+        /**
+         * 「最近」要列的那些会话：**树里画得出来的**，按最近活跃倒序（v0.14）。
+         *
+         * 为什么只收这一份：点一条的承诺是「定位到对应实际位置」，所以每一条都得在树上有行可滚。
+         * 归档项目那一组只画项目行（v0.13 的取舍），落点是项目而不是会话——往里塞这种条目，
+         * 点下去只能停在整个项目上，等于骗人。等它出了「归档项目里也画会话行」再一起收。
+         *
+         * 两级去重：同一条会话可能既在任务区、又在某个工作区名下（v0.13 的 `locateOf`
+         * 认「任务区优先」），这里也照同一个优先级——先收任务区，工作区里重复的跳过。
+         */
+        const recentIds = (() => {
+          const seen = new Set()
+          const ids = []
+          const push = (value) => {
+            const id = String(value ?? '')
+            if (id === '' || seen.has(id) || hiddenIds.has(id)) return
+            seen.add(id)
+            ids.push(id)
+          }
+          for (const group of dayGroups) {
+            for (const session of Array.isArray(group?.sessions) ? group.sessions : []) push(session?.id)
+          }
+          for (const workspace of plainWorkspaces) {
+            for (const id of workspaceMembers(workspace)) push(id)
+          }
+          return recency(ids)
+        })()
+
+        /**
          * 一组会话在「展开其余 N 个会话」之下，第 index 条现在看不看得见。
          * 与 `visibleSessions` 同一套判据：前 `SESSION_LIMIT` 条 + 跑着 / 等回话的照样露脸。
          * @param {number} index - 在**已过滤**清单里的位置（-1 = 不在清单里）。
@@ -3268,16 +3393,9 @@ window.__ModuleLoader__.load({
           // 落点只认 `anchorTarget`（上面算好那一份）：这一行与归档项目行必须说的是同一件事。
           const target = anchorTarget
           const currentTitle = labelOf(infoOf(currentId))
-          let where = t('locateMissing')
-          let tag = ''
-          if (target !== null && target.kind === 'task') {
-            where = `${t('tasks')} · ${dayLabel(target.day, t)}`
-          } else if (target !== null) {
-            const workspace = allWorkspaces.find((candidate) => String(candidate?.id) === target.workspaceId)
-            const name = typeof workspace?.title === 'string' ? workspace.title : ''
-            where = name !== '' ? name : target.workspaceId
-            tag = target.archived ? t('archivedBadge') : ''
-          }
+          // 归属文案与「最近」行共用 `whereOf`（同一句「任务 · 今天」不该两处各写一遍）。
+          const where = whereOf(target)
+          const tag = target !== null && target.kind === 'workspace' && target.archived ? t('archivedBadge') : ''
           // 归档项目里没有会话行可指：文案改成「定位到所在项目」，别承诺翻出会话。
           const action =
             target === null
@@ -3474,6 +3592,122 @@ window.__ModuleLoader__.load({
             ),
             isMenuOpen ? renderMenu(sessionMenuItems(sessionId, sidebarArchived), `menu:${sessionId}`) : null,
           )
+        }
+
+        /**
+         * 「最近」里的一行（v0.14）：状态点 + 标题 + 右边的日期。
+         *
+         * 点它 = **打开 + 定位**，与「搜索结果点开」走同一串动作（先收搜索、再开会话、再定位）：
+         * 官人要的「点击可以定位到对应实际位置」就是这一下——树折着就展开、行在下面几屏就滚过来、
+         * 到了再闪一下。光开会话不够：会话一开，侧栏还是停在原来的位置，人依旧不知道它在哪。
+         *
+         * 三个「不」：
+         *   1. 不挂 `data-session-id`、不登记 `rowNodes`——那一对账本是**树上**那行的（定位的目标），
+         *      同一 id 两处登记会互相覆盖，滚到的可能是这一行自己；
+         *   2. 不挂 `is-current` / `aria-current`——「你在这里」是单值断言，只属于树上那行；
+         *   3. 不给「…」菜单——归档 / 删除这类动文件的事留在树上做，入口只负责带路。
+         * @param {string} sessionId - 会话 id。
+         * @returns {object} React 元素。
+         */
+        const renderRecentRow = (sessionId) => {
+          const info = infoOf(sessionId)
+          const title = labelOf(info)
+          const status = statusOf(ctx, sessionId, info?.running === true)
+          const where = whereOf(locateOf(sessionId))
+          /**
+           * 点这一行：先收搜索（框开着时：清词 + 收框，否则滚不到树上的行），再开，再定位。
+           * 整行都能点（行上那份 `onClick` 是给鼠标的便利），键盘走里面的 button——
+           * 两边共用一个处理，button 上挡一次冒泡，别让一次点击跑两遍。
+           * @param {object} [event] - React 事件（测试里可能没有）。
+           */
+          const go = (event) => {
+            if (event !== null && event !== undefined && typeof event.stopPropagation === 'function') {
+              event.stopPropagation()
+            }
+            if (searchOpen || query.trim() !== '') closeSearch()
+            openSession(sessionId)
+            locateSession(sessionId, { force: true })
+          }
+          return h(
+            'div',
+            {
+              className: 'tsb-row tsb-recent',
+              key: `recent:${sessionId}`,
+              style: { '--tsb-indent': '10px' },
+              'data-recent-session-id': String(sessionId),
+              onClick: go,
+            },
+            h(
+              'button',
+              {
+                className: 'tsb-row-main',
+                type: 'button',
+                title: `${title}\n${where}\n${t('recentHint')}`,
+                'aria-label': `${title}（${where}）`,
+                onClick: go,
+              },
+              h('span', { className: 'tsb-dot', 'data-state': status, 'aria-label': status }),
+              h('span', { className: 'tsb-title' }, title),
+            ),
+            h('span', { className: 'tsb-meta tsb-recent-date' }, shortDay(info?.updatedAt, t)),
+          )
+        }
+
+        /**
+         * 树顶的「最近」那一组（v0.14）：默认 5 条，其余折进「查看更多 (N)」。
+         *
+         * 官人的参考设计是「最近 / 分组」两段：最近不分组、纯按时间排；分组是下面那棵树。
+         * 这一块就是前一段——**入口**，不是第二个列表：点一条，路就带回到它真正待的位置。
+         * 一条都没有（还没会话 / 都被过滤藏了）就整块不画，不留一个空壳占高。
+         *
+         * 铺几条是**一页页加的**（`recentShown`）：默认 5 条，「查看更多」一次多 20 条。
+         * 不一次全摊开——参考图里那一栏 181 条，全铺出来下面那棵树就顶到十屏以外了。
+         * @returns {object|null} React 元素（没有可列的会话时 null）。
+         */
+        const renderRecent = () => {
+          if (recentIds.length === 0) return null
+          const header = h(
+            'div',
+            { className: 'tsb-group', key: 'recent-group' },
+            h(
+              'button',
+              {
+                className: 'tsb-head',
+                type: 'button',
+                title: recentOpen ? t('collapse') : t('expand'),
+                onClick: () => setRecentOpen((open) => !open),
+              },
+              h('span', { className: recentOpen ? 'tsb-chev is-open' : 'tsb-chev' }, triangleIcon()),
+              h('span', { className: 'tsb-head-label' }, t('recent')),
+              h('span', { className: 'tsb-count' }, String(recentIds.length)),
+            ),
+          )
+          if (!recentOpen) return header
+          // 铺几条：至少 5 条（RECENT_LIMIT），「查看更多」一次多铺一页（RECENT_PAGE）。
+          const limit = Math.max(RECENT_LIMIT, recentShown)
+          const shown = recentIds.slice(0, limit)
+          const hidden = recentIds.length - shown.length
+          const nodes = shown.map((sessionId) => renderRecentRow(sessionId))
+          if (recentIds.length > RECENT_LIMIT) {
+            nodes.push(
+              h(
+                'button',
+                {
+                  // 与「展开其余 N 个会话」同一套几何（.tsb-more-sessions），另挂一个自己的类：
+                  // 两处都叫一个名字，测试与样式都会认错人。
+                  className: 'tsb-more-sessions tsb-recent-more',
+                  key: 'recent-more',
+                  type: 'button',
+                  style: { '--tsb-indent': '10px' },
+                  'aria-expanded': hidden > 0 ? false : true,
+                  // 还有剩的就再添一页；全铺出来了这一颗变「收起」，回到初始的 5 条。
+                  onClick: () => setRecentShown(hidden > 0 ? limit + RECENT_PAGE : RECENT_LIMIT),
+                },
+                hidden > 0 ? t('recentMore').replace('{n}', String(hidden)) : t('recentLess'),
+              ),
+            )
+          }
+          return [header, h('div', { className: 'tsb-rows', key: 'recent-rows' }, nodes)]
         }
 
         /**
@@ -4043,10 +4277,13 @@ window.__ModuleLoader__.load({
               : null,
           ),
 
-          // 唯一的一层滚动：任务按天 / 工作区 / 归档组 / 提示都在这里滚。
+          // 唯一的一层滚动：最近 / 任务按天 / 工作区 / 归档组 / 提示都在这里滚。
           h(
             'div',
             { className: 'tsb-scroll', ref: scrollBox },
+            // 第一块是「最近」（v0.14）：不分组、纯按时间，点一条把树带到它的位置。
+            // 搜索开着时整块让位给结果页（结果页自己就是「按时间排的入口」）。
+            searching ? null : renderRecent(),
             searching ? renderSearchResults() : [tasksGroup, tasksOpen ? h('div', { className: 'tsb-rows', key: 'tasks-rows' }, renderTaskDays()) : null],
 
             searching

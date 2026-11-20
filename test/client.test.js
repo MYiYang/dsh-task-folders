@@ -466,6 +466,8 @@ test('注入 zh / en 词典与令牌化样式表（含状态点与按天分隔�
     assert.equal(typeof entry.dict.skillsNav, 'string')
     assert.equal(typeof entry.dict.skillsIntro, 'string')
     assert.equal(typeof entry.dict.skillsUpload, 'string')
+    assert.equal(typeof entry.dict.recent, 'string')
+    assert.equal(typeof entry.dict.recentMore, 'string')
   }
   const css = client.styles[0].textContent
   assert.match(css, /\.tsb-root/)
@@ -574,7 +576,7 @@ test('顶部「项目」行在滚动区之外：.tsb-top 常驻，列表自己�
 test('折叠指示用 DSH 图标集的细 chevron（不再是 9px 的文字 ▸），与文件夹共用一格', () => {
   const tree = render(fixtureState())
   const chevrons = collectByType(tree, 'span').filter((node) => typeof node.props.className === 'string' && node.props.className.startsWith('tsb-chev'))
-  assert.equal(chevrons.length, 3, '任务组 / 工作区组 / 每个工作区行各一个')
+  assert.equal(chevrons.length, 4, '最近组 / 任务组 / 工作区组 / 每个工作区行各一个')
   for (const chevron of chevrons) {
     assert.equal(chevron.children[0].type, 'IconTriangleRightFillRegular', '折叠指示来自 DSH 图标集')
   }
@@ -609,7 +611,7 @@ test('拿不到 DSH 图标集时退回自带的 SVG，侧栏照常渲染', async
   const caption = collectByType(tree, 'div').find((node) => node.props.className === 'tsb-caption')
 
   assert.equal(folderGlyphs.length, 1, '工作区行的文件夹')
-  assert.equal(chevronGlyphs.length, 3, '两个组标题 + 工作区行的折叠指示')
+  assert.equal(chevronGlyphs.length, 4, '三个组标题（最近 / 任务 / 工作区）+ 工作区行的折叠指示')
   for (const icon of [caption.children[0], ...folderGlyphs, ...chevronGlyphs]) {
     assert.equal(icon.type, 'svg', '拿不到图标集就退回自带 SVG')
     assert.equal(icon.props.viewBox, '0 0 16 16')
@@ -2295,4 +2297,185 @@ test('搜索开着时自动定位先不动（树被结果页顶掉了），收�
   } finally {
     pass.dispose()
   }
+})
+
+// ---- v0.14：「最近」——树顶按时间排的一块入口，点一条就定位回它真正待的位置 ----
+
+/**
+ * 找「最近」那一组的标题行。
+ * @param {object} tree - 元素树。
+ * @returns {object|undefined} 节点。
+ */
+function recentGroup(tree) {
+  return collectByType(tree, 'div').find(
+    (node) => node.props.className === 'tsb-group' && collectText(node).join('').startsWith('最近'),
+  )
+}
+
+/**
+ * 「最近」里的那些行（带自己的 `tsb-recent` 类，与树上的会话行分开认）。
+ * @param {object} tree - 元素树。
+ * @returns {object[]} 行节点。
+ */
+function recentRows(tree) {
+  return collectByType(tree, 'div').filter((node) =>
+    String(node.props?.className ?? '')
+      .split(' ')
+      .includes('tsb-recent'),
+  )
+}
+
+/**
+ * 「查看更多 (N) / 收起」那一颗。
+ * @param {object} tree - 元素树。
+ * @returns {object|undefined} 按钮节点。
+ */
+function recentMoreButton(tree) {
+  return collectByType(tree, 'button').find((node) =>
+    String(node.props?.className ?? '')
+      .split(' ')
+      .includes('tsb-recent-more'),
+  )
+}
+
+test('「最近」在树顶：按最近活跃倒序，行尾写「今天 / 昨天」', () => {
+  const tree = render(fixtureState())
+  const root = collectByType(tree, 'div').find((node) => node.props.className === 'tsb-root')
+  const scroll = collectByType(root, 'div').find((node) => node.props.className === 'tsb-scroll')
+
+  const groups = collectByType(scroll, 'div').filter((node) => node.props.className === 'tsb-group')
+  assert.match(collectText(groups[0]).join(''), /^最近/, '滚动区第一组就是「最近」')
+  assert.ok(recentGroup(tree), '组标题在')
+
+  // 三条：aaaa（1 分钟）/ bbbb（2 小时）/ cccc（约 25 小时前）→ 时间倒序，跨天写「昨天」
+  assert.deepEqual(
+    recentRows(tree).map((row) => collectText(row).join('|')),
+    ['聊聊登录重构|今天', '昨天那条|今天', '别的项目会话|昨天'],
+    '最近的排最前，行尾是日历日（不是「3 分钟」）',
+  )
+  assert.equal(recentMoreButton(tree), undefined, '不满 5 条就不画「查看更多」')
+})
+
+test('「最近」默认 5 条，「查看更多 (N)」一页页铺开（20 条一页），全铺出来才变「收起」', () => {
+  const tree = render(bulkTasksState(30))
+  assert.equal(recentRows(tree).length, 5, '默认 5 条（与内置侧栏的水位一致）')
+  const more = recentMoreButton(tree)
+  assert.ok(more, '多出来的折进一颗按钮')
+  assert.equal(collectText(more).join(''), '查看更多 (25)', '括号里是还差几条')
+  assert.equal(more.props['aria-expanded'], false)
+
+  // 21 = recentShown（当前铺几条）：点一下多一页
+  const calls = []
+  const clickable = render(bulkTasksState(30), { wide: true }, undefined, calls)
+  recentMoreButton(clickable).props.onClick()
+  assert.deepEqual(calls, [[21, 25]], '5 → 25：一次多铺 20 条')
+
+  const second = render(bulkTasksState(30), { wide: true }, { 21: 25 }, calls)
+  assert.equal(recentRows(second).length, 25)
+  assert.equal(collectText(recentMoreButton(second)).join(''), '查看更多 (5)', '还剩 5 条')
+  recentMoreButton(second).props.onClick()
+  assert.deepEqual(calls, [[21, 25], [21, 45]], '25 → 45：再点一页（超出的由 slice 截掉）')
+
+  const all = render(bulkTasksState(30), { wide: true }, { 21: 45 })
+  assert.equal(recentRows(all).length, 30, '全铺出来')
+  assert.equal(collectText(recentMoreButton(all)).join(''), '收起')
+  assert.equal(recentMoreButton(all).props['aria-expanded'], true)
+
+  // 收起来 = 回到初始那 5 条，别把浮点似的状态一直留着
+  const collapseCalls = []
+  const collapsedClick = render(bulkTasksState(30), { wide: true }, { 21: 45 }, collapseCalls)
+  recentMoreButton(collapsedClick).props.onClick()
+  assert.deepEqual(collapseCalls, [[21, 5]])
+})
+
+test('点「最近」一行 = 打开 + 定位：展开折着的项目、排上「滚到眼前 + 闪一下」', async () => {
+  const bundle = await bootstrap({ moduleUrl: '../client.js?recent-click' })
+  bundle.module.apply(bundle.ctx)
+  const calls = []
+  // 5 = workspacesOpen（先折着），6 = expanded（项目都收着），18 = locateTarget
+  const tree = renderFrom(bundle, workspaceOnlyState(), { wide: true }, { 5: false, 6: new Set() }, calls)
+  const row = recentRows(tree).find((node) => node.props['data-recent-session-id'] === 'session-cccc3333')
+  assert.ok(row, '工作区里的那条也在「最近」里')
+  collectByType(row, 'button')
+    .find((node) => node.props.className === 'tsb-row-main')
+    .props.onClick()
+
+  assert.deepEqual(bundle.opened, ['session-cccc3333'], '点一条先打开它')
+  const slots = calls.map(([index]) => index)
+  assert.ok(slots.includes(5), '工作区组跟着展开')
+  assert.ok(slots.includes(6), '它所属的项目（ws:w-plain）跟着展开')
+  const locate = calls.find(([index]) => index === 18)
+  assert.equal(locate?.[1]?.id, 'session-cccc3333', '然后才排定位')
+  assert.equal(locate?.[1]?.flash, true, '显式点开的那次要闪一下')
+})
+
+test('搜索框开着（还没输词）时点「最近」：先收起搜索（清词 + 收框），再开再定位', async () => {
+  const bundle = await bootstrap({ moduleUrl: '../client.js?recent-click-search' })
+  bundle.module.apply(bundle.ctx)
+  const calls = []
+  // 7 = query，8 = searchOpen：框开着但没词——树与「最近」都还在（有词时整块让位，见另一条用例）
+  const tree = renderFrom(bundle, workspaceOnlyState(), { wide: true }, { 8: true }, calls)
+  const row = recentRows(tree).find((node) => node.props['data-recent-session-id'] === 'session-cccc3333')
+  assert.ok(row, '空词的搜索框不影响这一块')
+  collectByType(row, 'button')
+    .find((node) => node.props.className === 'tsb-row-main')
+    .props.onClick()
+
+  assert.deepEqual(calls.slice(0, 2), [
+    [7, ''],
+    [8, false],
+  ], '先清词、再收框')
+  assert.deepEqual(bundle.opened, ['session-cccc3333'])
+  assert.equal(calls.find(([index]) => index === 18)?.[1]?.id, 'session-cccc3333')
+})
+
+test('「最近」只是入口：不挂 data-session-id / aria-current，不抢「你在这里」', async () => {
+  const bundle = await clientWithCurrent('session-aaaa1111', 'recent-not-anchor')
+  const tree = renderFrom(bundle, fixtureState())
+  assert.ok(recentRows(tree).some((row) => row.props['data-recent-session-id'] === 'session-aaaa1111'))
+
+  const claiming = recentRows(tree).filter(
+    (row) => row.props['data-session-id'] !== undefined || row.props['aria-current'] !== undefined,
+  )
+  assert.deepEqual(claiming, [], '定位的账本与「你在这里」都只属于树上那行')
+
+  const treeRow = sessionRowById(tree, 'session-aaaa1111')
+  assert.equal(treeRow.props['data-session-id'], 'session-aaaa1111')
+  assert.match(String(treeRow.props.className), /\bis-current\b/)
+})
+
+test('「最近」跟着归档过滤走：隐藏时不列归档会话，切到「全部对话」才出现', () => {
+  const hiddenIds = recentRows(render(fixtureWithArchives())).map((row) => row.props['data-recent-session-id'])
+  assert.equal(hiddenIds.includes('session-dddd4444'), false, '默认「隐藏已归档」：归档那条不进')
+
+  const shown = render(fixtureWithArchives(), { wide: true }, { 9: 'show' })
+  assert.equal(
+    recentRows(shown).some((row) => row.props['data-recent-session-id'] === 'session-dddd4444'),
+    true,
+    '切到「全部对话」后它也在最近里',
+  )
+})
+
+test('搜索开着时整块「最近」让位给结果页；没有会话时连组标题都不画', () => {
+  const searching = render(fixtureState(), { wide: true }, { 7: '聊聊', 8: true })
+  assert.equal(recentRows(searching).length, 0, '搜索时不画')
+  assert.equal(recentGroup(searching), undefined, '组标题也不留')
+
+  const empty = render(bulkTasksState(0))
+  assert.equal(recentGroup(empty), undefined, '一条会话都没有：整块不画，不留空壳')
+})
+
+test('「最近」能折起来：收起来只剩组标题，计数还在', () => {
+  const tree = render(fixtureState(), { wide: true }, { 20: false })
+  assert.equal(recentRows(tree).length, 0, '折起来就没有行')
+  const group = recentGroup(tree)
+  assert.ok(group, '组标题照旧在')
+  assert.match(collectText(group).join(''), /最近3$/, '标题 + 计数：折起来也知道有几条')
+})
+
+test('「最近」的样式：日期 11px / caption 灰，查看更多挂自己的类', () => {
+  const css = client.styles[0].textContent
+  assert.match(css, /\.tsb-recent-date \{[^}]*font-size: 11px/, '日期比会话行的相对时间再轻一档')
+  assert.match(css, /\.tsb-recent-date \{[^}]*--dsw-alias-label-caption/, '走 DSH 令牌')
+  assert.match(css, /\.tsb-recent-more \{/, '「查看更多」有自己的类（与「展开其余 N 个会话」区分）')
 })
