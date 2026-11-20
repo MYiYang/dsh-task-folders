@@ -1039,7 +1039,7 @@ test('放大镜是开 / 关同一个入口：开着再点一下就收起', () =>
   assert.deepEqual(closedCalls, [[8, true]], '关着时点开')
 })
 
-test('点开一条搜索结果：先收起搜索，再打开会话', () => {
+test('点开一条搜索结果：先收起搜索，再打开会话，最后定位', () => {
   const calls = []
   const tree = render(fixtureState(), { wide: true }, { 7: '昨天', 8: true }, calls)
   const result = collectByType(tree, 'div').find((node) => node.props.className === 'tsb-result')
@@ -1048,8 +1048,11 @@ test('点开一条搜索结果：先收起搜索，再打开会话', () => {
   const main = collectByType(result, 'button')[0]
   client.opened.length = 0
   main.props.onClick()
-  assert.deepEqual(calls, [[7, ''], [8, false], [13, null]], '选完就把框收掉，侧栏回到任务列表')
+  assert.deepEqual(calls.slice(0, 3), [[7, ''], [8, false], [13, null]], '选完就把框收掉，侧栏回到任务列表')
   assert.deepEqual(client.opened, ['session-bbbb2222'], '会话照常打开')
+  // v0.13：结果页里看不出这条在哪个项目，回到树上顺手定位一次（locateTarget 是第 19 个 useState）
+  assert.equal(calls[3]?.[0], 18, '顺带排一次定位')
+  assert.equal(calls[3]?.[1]?.id, 'session-bbbb2222')
 })
 
 test('点开别处（会话行 / 搜索结果）会顺手撤掉顶部那条删除问句', () => {
@@ -1806,4 +1809,477 @@ test('新建技能弹窗：四个字段都受控，点安装发 installSkill', (
   )
   const textarea = collectByType(tree, 'textarea').find((node) => node.props.className === 'tsk-textarea')
   assert.equal(textarea.props.value, '# 步骤')
+})
+
+// ---- v0.13：会话锚点（「你在这里」+ 点一下就定位打开它所属的项目 / 任务） ----
+
+/**
+ * 一座「有当前会话」的侧栏实例。
+ *
+ * `retainedBy.mainView` 在 bootstrap 时就写死在会话快照里（假 React 不重渲染），
+ * 所以每个用例各起一份实例，`moduleUrl` 带个后缀免得 import 缓存把它们并成一个。
+ * @param {string} current - 谁的 retainedBy.mainView 置 1。
+ * @param {string} tag - 缓存后缀。
+ * @returns {Promise<object>} bootstrap 的返回值。
+ */
+async function clientWithCurrent(current, tag) {
+  const bundle = await bootstrap({ current, moduleUrl: `../client.js?anchor-${tag}` })
+  bundle.module.apply(bundle.ctx)
+  return bundle
+}
+
+/**
+ * 按 `data-session-id` 找一行会话（v0.13 起会话行带这个属性，定位要用它认 DOM）。
+ * @param {object} tree - 元素树。
+ * @param {string} id - 会话 id。
+ * @returns {object|undefined} 行节点。
+ */
+function sessionRowById(tree, id) {
+  return collectByType(tree, 'div').find((node) => node.props['data-session-id'] === id)
+}
+
+/**
+ * 一份「这条会话只挂在项目名下」的状态（fixtureState 里 cccc 同时在任务区与工作区，
+ * 那两条路径都找得到它——定位按「任务区优先」，测归属就得把它从任务区里摘掉）。
+ * @returns {object} Host 状态。
+ */
+function workspaceOnlyState() {
+  const state = fixtureState()
+  state.dayGroups = [{ day: TODAY, sessions: [{ id: 'session-bbbb2222', day: TODAY, createdAt: 2, live: false, archived: false }] }]
+  return state
+}
+
+/**
+ * 找常驻头里的锚点行。
+ * @param {object} tree - 元素树。
+ * @returns {object|undefined} 按钮节点。
+ */
+function anchorButton(tree) {
+  return collectByType(tree, 'button').find((node) => node.props.className === 'tsb-anchor')
+}
+
+test('当前会话那一行挂 is-current + aria-current：主视图开着哪条，侧栏就标哪条', async () => {
+  const bundle = await clientWithCurrent('session-aaaa1111', 'current-row')
+  const tree = renderFrom(bundle, fixtureState())
+
+  const row = sessionRowById(tree, 'session-aaaa1111')
+  assert.ok(row, '任务区那条会话照旧画出来')
+  assert.match(String(row.props.className), /\bis-current\b/, '当前会话行挂 is-current')
+  assert.equal(row.props['aria-current'], 'true', '无障碍也认得出「你在这里」')
+
+  const other = sessionRowById(tree, 'session-bbbb2222')
+  assert.ok(other)
+  assert.doesNotMatch(String(other.props.className), /\bis-current\b/, '别的行不挂')
+  assert.equal(other.props['aria-current'], undefined)
+})
+
+test('锚点行说出当前会话的归属：任务按天 / 工作区按项目名', async () => {
+  const taskBundle = await clientWithCurrent('session-aaaa1111', 'anchor-task')
+  const taskTree = renderFrom(taskBundle, fixtureState())
+  const anchor = anchorButton(taskTree)
+  assert.ok(anchor, '有当前会话就有一行锚点')
+  assert.equal(collectText(anchor).join(''), '任务 · 今天', '任务会话：任务 · 今天')
+  assert.match(String(anchor.props.title), /你在这里/, '悬停说清这是「你在这里」')
+  assert.match(String(anchor.props.title), /定位当前会话/, '并且说明点它会定位')
+  assert.equal(anchor.props.disabled, false)
+
+  const wsBundle = await clientWithCurrent('session-cccc3333', 'anchor-workspace')
+  const wsTree = renderFrom(wsBundle, workspaceOnlyState())
+  assert.equal(collectText(anchorButton(wsTree)).join(''), '我的项目', '工作区会话：写项目名')
+})
+
+test('没有打开的会话就没有锚点行：不占那一行的位置', () => {
+  assert.equal(anchorButton(render(fixtureState())), undefined)
+})
+
+test('当前会话不属于侧栏里任何项目 / 任务：锚点如实说「不在侧栏里」，按钮不可点', async () => {
+  const bundle = await clientWithCurrent('session-eeee5555', 'anchor-missing')
+  const anchor = anchorButton(renderFrom(bundle, fixtureState()))
+  assert.ok(anchor, '锚点行照旧在（找不到落点也是一种答案）')
+  assert.equal(collectText(anchor).join(''), '不在侧栏里')
+  assert.equal(anchor.props.disabled, true, '点不动，别给空承诺')
+  assert.equal(anchor.props['aria-label'], '你在这里：不在侧栏里')
+})
+
+test('点锚点行 = 定位：展开折着的项目组，再排一次「滚到眼前 + 闪一下」', async () => {
+  const bundle = await clientWithCurrent('session-cccc3333', 'anchor-locate')
+  const calls = []
+  // useState 序号：5 = workspacesOpen（先折着），6 = expanded（没有展开任何一个项目），18 = locateTarget
+  const tree = renderFrom(bundle, workspaceOnlyState(), { wide: true }, { 5: false, 6: new Set() }, calls)
+  const anchor = anchorButton(tree)
+  assert.ok(anchor)
+  anchor.props.onClick()
+
+  const slots = calls.map(([index]) => index)
+  assert.ok(slots.includes(5), '工作区组跟着展开')
+  assert.ok(slots.includes(6), '它所属的项目（ws:w-plain）跟着展开')
+  const locate = calls.find(([index]) => index === 18)
+  assert.ok(locate, '排了一次定位')
+  assert.equal(locate[1].id, 'session-cccc3333')
+})
+
+/**
+ * 一份「任务区里塞满会话」的状态，并且把**排在最后**（createdAt 最小 → 倒序后最底下）那条
+ * 换成指定会话 id：这样它必然落在「展开其余 N 个会话」之外，用来测定位要不要展开。
+ * @param {number} count - 会话条数。
+ * @param {string} id - 要放到最后那条的会话 id。
+ * @returns {object} Host 状态。
+ */
+function bulkStateEndingWith(count, id) {
+  const state = bulkTasksState(count)
+  const sessions = state.dayGroups[0].sessions.map((session) => ({ ...session }))
+  const last = sessions.reduce((worst, session) => (session.createdAt < worst.createdAt ? session : worst), sessions[0])
+  last.id = id
+  last.createdAt = -1
+  state.dayGroups = [{ day: TODAY, sessions }]
+  return state
+}
+
+test('会话排在「展开其余 N 个会话」之外：定位会连那一段一起展开，不然滚也滚不到', async () => {
+  // 用「不在跑」的会话：跑着 / 等回话的那几条本来就不折（visibleSessions 的例外），测不出展开。
+  const bundle = await clientWithCurrent('session-bbbb2222', 'anchor-fold')
+  const calls = []
+  // 4 = tasksOpen（先折着）、15 = tasksExpanded（先折着）
+  const tree = renderFrom(bundle, bulkStateEndingWith(12, 'session-bbbb2222'), { wide: true }, { 4: false, 15: false }, calls)
+  const anchor = anchorButton(tree)
+  assert.ok(anchor)
+  assert.equal(collectText(anchor).join(''), '任务 · 今天')
+  anchor.props.onClick()
+
+  const slots = calls.map(([index]) => index)
+  assert.ok(slots.includes(4), '任务组展开')
+  assert.ok(slots.includes(15), '「展开其余 N 个会话」也展开')
+  assert.equal(calls.find(([index]) => index === 18)?.[1]?.id, 'session-bbbb2222')
+})
+
+test('归档会话被「隐藏已归档」滤掉时：点锚点先切到「全部对话」，再定位', async () => {
+  const bundle = await clientWithCurrent('session-dddd4444', 'anchor-archived')
+  const calls = []
+  const tree = renderFrom(bundle, fixtureWithArchives(), { wide: true }, undefined, calls)
+  const anchor = anchorButton(tree)
+  assert.ok(anchor)
+  assert.equal(collectText(anchor).join(''), '任务 · 今天', '归档的会话也认得出在哪天')
+  anchor.props.onClick()
+
+  assert.deepEqual(calls[0], [9, 'show'], '第一件事是把视图档位切到「全部对话」（9 = archivedFilter）')
+  assert.equal(calls.find(([index]) => index === 18)?.[1]?.id, 'session-dddd4444', '然后才排定位')
+})
+
+test('刚被定位过的那一行挂 is-flash：闪一下，不永久染色', async () => {
+  const bundle = await clientWithCurrent('session-aaaa1111', 'anchor-flash')
+  // 19 = flashId
+  const tree = renderFrom(bundle, fixtureState(), { wide: true }, { 19: 'session-aaaa1111' })
+  const row = sessionRowById(tree, 'session-aaaa1111')
+  assert.match(String(row.props.className), /\bis-flash\b/)
+
+  const other = sessionRowById(tree, 'session-bbbb2222')
+  assert.doesNotMatch(String(other.props.className), /\bis-flash\b/, '别的行不闪')
+})
+
+test('锚点与定位的样式：主色竖条、一次淡出、锚点行 22px/11px 且走 DSH 令牌', () => {
+  const css = client.styles[0].textContent
+  assert.match(
+    css,
+    /\.tsb-row\.is-current \{[^}]*box-shadow: inset 2px 0 0 var\(--dsw-alias-state-business-primary\)/,
+    '当前会话：主色竖条贴在行左缘（inset 阴影，不占布局）',
+  )
+  assert.match(css, /\.tsb-row\.is-current \.tsb-title \{[^}]*--dsw-alias-label-primary/, '标题升到 label-primary')
+  assert.match(css, /\.tsb-row\.is-flash \{ animation: tsb-locate 1\.4s/, '定位那一下是一次 1.4s 的动画')
+  assert.match(
+    css,
+    /@keyframes tsb-locate \{[^}]*--dsw-alias-state-business-tertiary/,
+    '闪的是 business 的浅底，与竖条同一色系',
+  )
+  assert.match(css, /\.tsb-anchor \{[^}]*height: 22px/, '锚点行比会话行还轻一档')
+  assert.match(css, /\.tsb-anchor \{[^}]*font-size: 11px/, '11px 小字：它是「说明」不是「条目」')
+  assert.match(css, /\.tsb-anchor-icon \{[^}]*--dsw-alias-state-business-primary/, '准星用 business 主色')
+  assert.match(css, /\.tsb-anchor-tag \{/, '归档角标有独立样式')
+  assert.match(css, /prefers-reduced-motion/, '减少动态效果时不出动画')
+})
+
+// ---- v0.13：真跑一遍 effect（假 DOM 挂 ref，滚动的几何与「闪一下」都验到） ----
+
+/**
+ * 把假元素树「挂」成一组假 DOM 节点：按文档顺序给每样东西一个 top，行 32px、
+ * 滚动容器 240px，再按 React 的顺序调 `props.ref`（子节点挂完才调 ref）。
+ *
+ * 这样 v0.13 的定位才验得动：`rowNodes` / `scrollBox` 得先有真节点，
+ * `scrollRowIntoView` 才量得到几何、才动得了 `scrollTop`。
+ * @param {object} tree - 假元素树。
+ * @param {{boxHeight?: number, rowHeight?: number}} [options] - 几何。
+ * @returns {{nodes: object[], byClass: Map<string, object[]>}} 挂出来的节点。
+ */
+function mountFakeDom(tree, options = {}) {
+  const nodes = []
+  const byClass = new Map()
+  const boxHeight = options.boxHeight ?? 240
+  const rowHeight = options.rowHeight ?? 32
+  let cursor = 0
+  const visit = (node) => {
+    if (node === null || node === undefined || typeof node !== 'object' || Array.isArray(node)) return
+    if (typeof node.type !== 'string') return
+    const className = typeof node.props?.className === 'string' ? node.props.className : ''
+    const classes = className.split(' ').filter(Boolean)
+    const height = classes.includes('tsb-scroll') ? boxHeight : classes.includes('tsb-row') ? rowHeight : 4
+    const fake = {
+      className,
+      scrollTop: 0,
+      rect: { top: cursor, height },
+      getBoundingClientRect() {
+        return { top: this.rect.top, height: this.rect.height }
+      },
+      scrollIntoView() {
+        this.scrolledIntoView = true
+      },
+      contains() {
+        return false
+      },
+      focus() {},
+    }
+    cursor += height
+    nodes.push(fake)
+    for (const name of classes) byClass.set(name, [...(byClass.get(name) ?? []), fake])
+    // 位置按文档顺序给（容器在自己孩子前面），ref 等孩子挂完再调——与 React 同一个次序。
+    for (const child of node.children ?? []) visit(child)
+    const ref = node.props?.ref
+    if (typeof ref === 'function') ref(fake)
+    else if (ref !== null && ref !== undefined && typeof ref === 'object') ref.current = fake
+  }
+  for (const child of tree.children ?? []) visit(child)
+  return { nodes, byClass }
+}
+
+/**
+ * 渲染一次 + 挂假 DOM（ref 在 effect 之前，跟 React 一样）+ 跑一遍 effect。
+ *
+ * 假 React 的 useState 只记账不重渲染，所以「展开」这类要等下一次渲染才看得见的变化，
+ * 靠断言 setState 的意图来验；而滚动 / 闪一下这类**当场动 DOM** 的副作用能直接验。
+ * @param {object} bundle - bootstrap 返回值。
+ * @param {object} state - Host 状态。
+ * @param {Record<number, unknown>} [extra] - useState 初值覆盖（按序号）。
+ * @param {Array} [calls] - setState 记账。
+ * @returns {{tree: object, dom: object, calls: Array, dispose: Function}} 结果。
+ */
+function renderWithEffects(bundle, state, extra, calls) {
+  const React = bundle.react
+  const effects = []
+  const originalUseEffect = React.useEffect
+  React.useEffect = (fn) => {
+    effects.push(fn)
+  }
+  let tree
+  try {
+    tree = renderFrom(bundle, state, { wide: true }, extra, calls)
+  } finally {
+    React.useEffect = originalUseEffect
+  }
+  const dom = mountFakeDom(tree)
+  const cleanups = []
+  for (const fn of effects) {
+    const cleanup = fn()
+    if (typeof cleanup === 'function') cleanups.push(cleanup)
+  }
+  const dispose = () => {
+    for (const cleanup of cleanups.reverse()) {
+      try {
+        cleanup()
+      } catch {
+        /* 清理失败不影响断言 */
+      }
+    }
+  }
+  return { tree, dom, calls, dispose }
+}
+
+test('定位的第二步真会滚：把队列里的那行滚进容器正中，并点上「闪一下」（假 DOM）', async () => {
+  const bundle = await clientWithCurrent('session-bbbb2222', 'anchor-dom-scroll')
+  const calls = []
+  // 排在列表最底（第 12 条）的那条会话：不滚就看不见，滚了 scrollTop 一定为正。
+  // 15 = tasksExpanded（先展开，行才画得出来），18 = locateTarget，19 = flashId
+  const pass = renderWithEffects(
+    bundle,
+    bulkStateEndingWith(12, 'session-bbbb2222'),
+    { 15: true, 18: { id: 'session-bbbb2222', at: 1, flash: true } },
+    calls,
+  )
+  try {
+    // rAF 缺席时退回 setTimeout(16)：等它自己跑
+    await new Promise((resolve) => setTimeout(resolve, 80))
+    const box = pass.dom.byClass.get('tsb-scroll')[0]
+    assert.ok(box, '滚动容器挂上了 ref')
+    assert.ok(box.scrollTop > 0, `滚到那一行（scrollTop=${box.scrollTop}）`)
+  } finally {
+    pass.dispose()
+  }
+  assert.deepEqual(
+    calls.filter(([index]) => index === 19).map(([, value]) => value),
+    ['', 'session-bbbb2222'],
+    '闪的开关：先撤掉上一次，下一帧再点上（同一个 class 挂着不会重播动画）',
+  )
+})
+
+test('打开一条藏在折起来的项目里的会话：自动定位先把那一段展开（effect 真跑）', async () => {
+  const bundle = await clientWithCurrent('session-cccc3333', 'anchor-dom-auto')
+  const calls = []
+  // expanded（序号 6）是空的：这条会话眼下根本画不出来
+  const pass = renderWithEffects(bundle, workspaceOnlyState(), undefined, calls)
+  try {
+    const slots = calls.map(([index]) => index)
+    assert.ok(slots.includes(6), '请求展开它所属的项目（ws:w-plain）')
+    const expandedCall = calls.find(([index]) => index === 6)
+    assert.ok(expandedCall[1] instanceof Set && expandedCall[1].has('ws:w-plain'), '展开的正是那个项目')
+    assert.ok(slots.includes(18), '并排了一次「滚到眼前 + 闪一下」')
+  } finally {
+    pass.dispose()
+  }
+})
+
+test('当前会话本来就露着：自动定位什么都不动（不抖，也不闪）', async () => {
+  const bundle = await clientWithCurrent('session-aaaa1111', 'anchor-dom-visible')
+  const calls = []
+  const pass = renderWithEffects(bundle, fixtureState(), undefined, calls)
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    const touched = calls.map(([index]) => index).filter((index) => [4, 5, 6, 11, 15, 16, 18].includes(index))
+    assert.deepEqual(touched, [], '没有展开、没有排队定位：已经看得见就不该动')
+  } finally {
+    pass.dispose()
+  }
+})
+
+
+/**
+ * 一份「当前会话挂在一个**已归档项目**名下」的状态。
+ *
+ * 归档项目那一组只画项目行、不画会话行（原来就只列项目 + 「恢复」），所以 v0.13 的落点
+ * 只能是那个项目行本身——这条路径以前没有任何用例盯着，正是最容易说了做不到的地方。
+ * @returns {object} Host 状态。
+ */
+function archivedProjectOnlyState() {
+  const state = fixtureWithArchives()
+  state.dayGroups = [{ day: TODAY, sessions: [{ id: 'session-bbbb2222', day: TODAY, createdAt: 2, live: false, archived: false }] }]
+  state.workspaces = [
+    {
+      id: 'w-old',
+      title: '归档的老项目',
+      path: 'F:\ssdwork\vscode\work\old',
+      order: 1,
+      sessionIds: ['session-cccc3333'],
+      live: [],
+      archived: true,
+    },
+  ]
+  return state
+}
+
+test('会话挂在已归档项目里：锚点说得出项目名 + 「已归档」，点它展开那一组并把落点改成项目行', async () => {
+  const bundle = await clientWithCurrent('session-cccc3333', 'anchor-archived-project')
+  const calls = []
+  // 11 = archivedProjectsOpen（先折着）
+  const tree = renderFrom(bundle, archivedProjectOnlyState(), { wide: true }, { 11: false }, calls)
+  const anchor = anchorButton(tree)
+  assert.ok(anchor, '归档项目里的会话也有锚点')
+  assert.equal(collectText(anchor).join(''), '归档的老项目·已归档', '项目名 + 已归档角标')
+  assert.equal(anchor.props.disabled, false, '点得动——它确实能带你到那个项目')
+
+  anchor.props.onClick()
+  const slots = calls.map(([index]) => index)
+  assert.ok(slots.includes(11), '展开「已归档项目」那一组')
+  const locate = calls.find(([index]) => index === 18)
+  assert.ok(locate, '排了一次定位')
+  assert.equal(locate[1].id, 'ws:w-old', '归档项目里不画会话行，落点是项目行本身')
+})
+
+test('归档项目那一行自己就是锚点：装着当前会话挂 is-current，被定位时挂 is-flash', async () => {
+  const bundle = await clientWithCurrent('session-cccc3333', 'anchor-archived-row')
+  // 11 = archivedProjectsOpen（开着才画行），19 = flashId
+  const tree = renderFrom(bundle, archivedProjectOnlyState(), { wide: true }, { 11: true, 19: 'ws:w-old' })
+  const row = collectByType(tree, 'div').find((node) => node.props['data-workspace-id'] === 'w-old')
+  assert.ok(row, '归档项目行画出来了')
+  assert.match(String(row.props.className), /\bis-current\b/, '装着当前会话 → 你在这里')
+  assert.match(String(row.props.className), /\bis-flash\b/, '落点是它 → 闪它')
+  assert.equal(row.props['aria-current'], 'true')
+})
+
+test('会话在归档项目里时不该拿「归档过滤」说事：人挑的「仅已归档」不许被改掉', async () => {
+  const bundle = await clientWithCurrent('session-cccc3333', 'anchor-archived-filter')
+  const calls = []
+  // 9 = archivedFilter
+  const tree = renderFrom(bundle, archivedProjectOnlyState(), { wide: true }, { 9: 'only' }, calls)
+  anchorButton(tree).props.onClick()
+  assert.deepEqual(
+    calls.filter(([index]) => index === 9),
+    [],
+    '归档项目里的会话本来就不画在树上，与归档过滤无关',
+  )
+})
+
+test('搜索开着时点锚点：先收起搜索（清词 + 收框），再定位——结果页里没有树可滚', async () => {
+  const bundle = await clientWithCurrent('session-aaaa1111', 'anchor-search-close')
+  const calls = []
+  const tree = renderFrom(bundle, fixtureState(), { wide: true }, { 7: '昨天', 8: true }, calls)
+  anchorButton(tree).props.onClick()
+  assert.deepEqual(calls.slice(0, 2), [[7, ''], [8, false]], '先收搜索')
+  assert.ok(calls.some(([index]) => index === 18), '再排定位')
+})
+
+test('「闪一下」只动底色：主色竖条是常驻的，不能被动画抹掉 1.4 秒', () => {
+  const css = client.styles[0].textContent
+  assert.match(css, /@keyframes tsb-locate \{[^}]*background/, '闪的是底色')
+  assert.doesNotMatch(css, /@keyframes tsb-locate \{[^}]*box-shadow/, '竖条留给 .tsb-row.is-current 常驻')
+})
+
+/**
+ * 一份「这条会话既在按天分组里、又挂在某个归档项目名下」的状态（两条判据是独立的，
+ * 插件的 `lib/state.js` 里确实可能出现这种形状）。
+ * @returns {object} Host 状态。
+ */
+function ambiguousMembershipState() {
+  const state = fixtureWithArchives()
+  state.workspaces = [
+    { ...state.workspaces[0], sessionIds: ['session-cccc3333'] },
+    {
+      id: 'w-old',
+      title: '归档的老项目',
+      path: 'F:\ssdwork\vscode\work\old',
+      order: 1,
+      sessionIds: ['session-cccc3333'],
+      live: [],
+      archived: true,
+    },
+  ]
+  return state
+}
+
+test('「你在这里」只有一处：既在按天分组里、又挂在归档项目名下时，只标会话行', async () => {
+  const bundle = await clientWithCurrent('session-cccc3333', 'anchor-single')
+  // 11 = archivedProjectsOpen：开着才画归档项目行
+  const tree = renderFrom(bundle, ambiguousMembershipState(), { wide: true }, { 11: true })
+  const row = sessionRowById(tree, 'session-cccc3333')
+  assert.ok(row)
+  assert.match(String(row.props.className), /\bis-current\b/, '会话行标「你在这里」')
+
+  const archivedRow = collectByType(tree, 'div').find((node) => node.props['data-workspace-id'] === 'w-old')
+  assert.ok(archivedRow, '归档项目行画出来了')
+  assert.doesNotMatch(String(archivedRow.props.className), /\bis-current\b/, '同一件事只能标一处')
+  assert.equal(archivedRow.props['aria-current'], undefined, '读屏不该听到两个「当前」')
+})
+
+test('归档项目里的会话：锚点说的是「定位到所在项目」，不是「定位当前会话」', async () => {
+  const bundle = await clientWithCurrent('session-cccc3333', 'anchor-archived-wording')
+  const tree = renderFrom(bundle, archivedProjectOnlyState(), { wide: true }, { 11: true })
+  assert.match(String(anchorButton(tree).props.title), /定位到所在项目/)
+})
+
+test('搜索开着时自动定位先不动（树被结果页顶掉了），收起搜索后补一次', async () => {
+  const bundle = await clientWithCurrent('session-cccc3333', 'anchor-auto-search')
+  const calls = []
+  // 7 = query（有词），8 = searchOpen
+  const pass = renderWithEffects(bundle, workspaceOnlyState(), { 7: '昨天', 8: true }, calls)
+  try {
+    const touched = calls.map(([index]) => index).filter((index) => [4, 5, 6, 11, 15, 16, 18].includes(index))
+    assert.deepEqual(touched, [], '搜索开着：没行可滚，先别展开也别排定位')
+  } finally {
+    pass.dispose()
+  }
 })

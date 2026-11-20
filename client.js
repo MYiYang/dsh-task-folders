@@ -104,6 +104,25 @@
  *      会话日志 mtime 算出来的真实活跃时间），与 DSH 快照的 `updatedAt` 取最大；
  *   3. **分组**：任务区按 Host 给的「最后活跃那天」分组（v0.12 起），不再按创建日。
  * 旧版 Host 没有 `sessionMeta` 时全部退回原行为，不会白屏。
+ *
+ * v0.13 给会话补一个**锚点定位**（官人：「点击会话…左侧要定位打开对应的项目或者任务，
+ * 这样能确定当前会话是哪里的」）：主视图里开着的那条会话，侧栏得知道它在哪、并且能带人回去。
+ *   1. **「你在这里」**：那条会话的行挂 `is-current`（主色左侧竖条 + label-primary 标题 +
+ *      `aria-current`），一眼看出「就是这条」；
+ *   2. **锚点行**：常驻头（`.tsb-top`）里多一行 `.tsb-anchor`——十字准星 + 归属
+ *      （「任务 · 今天」/「我的项目」/「归档的老项目 · 已归档」，找不到时如实说「不在侧栏里」）。
+ *      点它 = 定位：把折着的祖先一层层展开、把行滚进视野正中、闪一下；
+ *   3. **打开会话就自动定位**：主视图换到哪条会话（无论从哪里打开：侧栏行、搜索结果、
+ *      DSH 自己的入口），只要那条会话当前**看不见**（组折着 / 被「展开其余 N 个」折掉 /
+ *      被归档过滤藏起 / 在「已归档项目」里），就自动展开它所属的项目或任务组并滚到眼前；
+ *      已经看得见就什么都不动（免得每次点行都抖一下）。刚用 ＋ 建的会话 Host 那一拍
+ *      `state` 里还没有，定位会等下一份 state 再试（20 秒宽限，过了才认账）；
+ *   4. **搜索结果点开**也走同一条：先收起搜索，再打开会话，再定位——结果页里看不出它在哪个
+ *      项目，回到树上才看得出来；搜索开着时自动定位也先不动，等收起搜索再补一次；
+ *   5. **归档项目里的落点是项目行**：「已归档项目」那一组只列项目、不画会话行，所以那条会话
+ *      的落点是它所属的**项目行**（`ws:<id>`）：展开这一组、滚到它、闪它。落点只有一份
+ *      （`anchorTarget`）——同一个会话不会既标会话行又标项目行。
+ * 定位全程只动客户端状态（展开 / 滚动 / 高亮），不写 Host、不碰会话日志。
  */
 window.__ModuleLoader__.load({
   id: 'dsh-task-folders',
@@ -244,6 +263,33 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * 十字准星（v0.13 的「定位当前会话」锚点）：DSH 图标集里没有现成的一枚，
+     * 统一画自带的 SVG——圆环 + 四向短刻线 + 圆心点，14/12px、线宽 1.2，
+     * 与它并排的放大镜同一个视觉重量（同一带、同一级灰）。
+     * @param {number} [size] - 边长，默认 12（锚点行比标题低一档）。
+     * @returns {object} React 元素。
+     */
+    function targetIcon(size = 12) {
+      return h(
+        'svg',
+        {
+          viewBox: '0 0 16 16',
+          width: size,
+          height: size,
+          fill: 'none',
+          stroke: 'currentColor',
+          strokeWidth: 1.3,
+          strokeLinecap: 'round',
+          'aria-hidden': 'true',
+          focusable: 'false',
+        },
+        h('circle', { cx: 8, cy: 8, r: 4.4 }),
+        h('circle', { cx: 8, cy: 8, r: 1.1, fill: 'currentColor', stroke: 'none' }),
+        h('path', { d: 'M8 1.2v2.4M8 12.4v2.4M1.2 8h2.4M12.4 8h2.4' }),
+      )
+    }
+
+    /**
      * 行尾的「…」（更多操作菜单）：`IconEllipsisOutlineRegular` 优先，退回三个实心点。
      * @param {number} [size] - 边长，默认 14。
      * @returns {object} React 元素。
@@ -318,6 +364,17 @@ window.__ModuleLoader__.load({
     const ATTENTION_STATES = new Set(['running', 'pending'])
     /** 弹出菜单的宽度（视图选项 / 会话「…」/ 工作区「…」都是同一档）。 */
     const MENU_WIDTH = 156
+    /**
+     * 定位之后那一下「闪」的时长（与样式里 `tsb-locate` 的动画时长对齐）。
+     * 定位是「滚过去 + 闪一下」：滚到眼前是位置，闪一下是告诉你「就是这一行」。
+     */
+    const FLASH_MS = 1_400
+    /**
+     * 自动定位「等 Host 把会话算进来」的宽限期：刚用 ＋ 建的会话，主视图已经切过去、
+     * Host 的 state 却要等下一拍才有它。这段时间里找不到落点就等下一份 state 再试，
+     * 过了才认账「它真不在侧栏里」。
+     */
+    const LOCATE_RETRY_MS = 20_000
 
     const zh = {
       project: '项目',
@@ -461,6 +518,13 @@ window.__ModuleLoader__.load({
       // —— v0.10：上级行上的「下面有任务在跑」标记 ——
       runningBelow: '下面有 {n} 个任务在跑',
       waitingBelow: '下面有 {n} 个任务等你回话',
+      // —— v0.13：会话锚点（「你在这里」+ 点一下就定位打开它的项目 / 任务）——
+      youAreHere: '你在这里',
+      locateCurrent: '定位当前会话',
+      locateProject: '定位到所在项目',
+      locateMissing: '不在侧栏里',
+      locateMissingHint: '这条会话不属于侧栏里的任何项目或任务',
+      locateUnfiltered: '这条会话被归档过滤藏起来了，已切到「全部对话」',
     }
 
     const en = {
@@ -601,6 +665,13 @@ window.__ModuleLoader__.load({
       // —— v0.10: "a task below is running" marks on ancestor rows ——
       runningBelow: '{n} running below',
       waitingBelow: '{n} waiting for you below',
+      // —— v0.13: session anchor ("you are here" + click to open its project / task) ——
+      youAreHere: 'You are here',
+      locateCurrent: 'Locate the current session',
+      locateProject: 'Locate its project',
+      locateMissing: 'Not in the sidebar',
+      locateMissingHint: 'This session belongs to no project or task shown in the sidebar',
+      locateUnfiltered: 'That session was hidden by the archive filter — switched to "All conversations"',
     }
 
     /**
@@ -663,6 +734,55 @@ window.__ModuleLoader__.load({
    user-select: none;
  }
  .tsb-caption-icon { flex: 0 0 auto; color: var(--dsw-alias-label-tertiary); }
+ /* —— v0.13：锚点行（「你在这里」）——
+    常驻头里的一行小字：十字准星 + 当前会话的归属（「任务 · 今天」/「我的项目」）。
+    它不滚、不折，也不随分组收起而消失——任务组和工作区组全折起来时，这是唯一还在告诉你
+    「当前会话在哪」的地方。点它 = 定位：展开祖先、滚到眼前、闪一下。
+    几何照抄内建侧栏的次要行（22px 高、11px 字、tertiary 灰），比会话行还轻一档。 */
+ .tsb-anchor {
+   flex: 0 0 auto;
+   display: flex;
+   align-items: center;
+   gap: 5px;
+   box-sizing: border-box;
+   width: 100%;
+   min-width: 0;
+   height: 22px;
+   padding: 0 8px 0 4px;
+   border: 0;
+   border-radius: var(--dsw-radius-sm);
+   background: transparent;
+   color: var(--dsw-alias-label-tertiary);
+   font-family: inherit;
+   font-size: 11px;
+   line-height: 15px;
+   text-align: left;
+   cursor: pointer;
+ }
+ .tsb-anchor:hover:not(:disabled) {
+   background: var(--dsw-alias-interactive-bg-hover);
+   color: var(--dsw-alias-label-secondary);
+ }
+ .tsb-anchor-icon { flex: 0 0 auto; color: var(--dsw-alias-state-business-primary); }
+ .tsb-anchor-label {
+   flex: 0 1 auto;
+   min-width: 0;
+   overflow: hidden;
+   text-overflow: ellipsis;
+   white-space: nowrap;
+ }
+ .tsb-anchor-sep { flex: 0 0 auto; color: var(--dsw-alias-label-caption); }
+ .tsb-anchor-tag {
+   flex: 0 0 auto;
+   padding: 0 4px;
+   border-radius: 4px;
+   background: var(--dsw-alias-bg-layer-2);
+   color: var(--dsw-alias-label-tertiary);
+   font-size: 10px;
+   line-height: 14px;
+ }
+ .tsb-anchor:disabled { cursor: default; }
+ .tsb-anchor:disabled .tsb-anchor-icon { color: var(--dsw-alias-label-caption); }
  .tsb-folder {
    flex: 0 0 auto;
    display: inline-flex;
@@ -761,6 +881,25 @@ window.__ModuleLoader__.load({
  }
  .tsb-row:hover { background: var(--dsw-alias-interactive-bg-hover); }
  .tsb-row.is-open { background: var(--dsw-alias-interactive-bg-hover); }
+ /* —— v0.13：当前会话行（「你在这里」）——
+    主色竖条贴在行左缘（inset 阴影，不占布局宽度，行几何一点不动），标题升到 label-primary。
+    内置侧栏的祖先高亮只说「在这棵子树里」，这一条说的才是「就是这一行」。 */
+ .tsb-row.is-current {
+   box-shadow: inset 2px 0 0 var(--dsw-alias-state-business-primary);
+ }
+ .tsb-row.is-current .tsb-title { font-weight: 500; color: var(--dsw-alias-label-primary); }
+ /* 定位的那一下：主色底从亮到淡（一次 1.4s）。不改几何、不改状态，只是告诉你「找到了」。
+    **只动 background**：.tsb-row.is-current 那条主色竖条是常驻的，闪的时候要是也去写
+    box-shadow，动画会把它从 primary 淡成 transparent 再跳回来——正需要「你在这里」的时候
+    反而把它抹掉 1.4 秒。 */
+ .tsb-row.is-flash { animation: tsb-locate 1.4s ease-out 1; }
+ @keyframes tsb-locate {
+   0% { background: var(--dsw-alias-state-business-tertiary, var(--dsw-alias-interactive-bg-hover)); }
+   100% { background: transparent; }
+ }
+ @media (prefers-reduced-motion: reduce) {
+   .tsb-row.is-flash { animation: none; }
+ }
  .tsb-row-main {
    flex: 1 1 auto;
    min-width: 0;
@@ -1514,6 +1653,44 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * 把一行会话滚进侧栏滚动容器的视野里（尽量落在正中偏上）。
+     *
+     * 为什么自己算 `scrollTop` 而不是 `row.scrollIntoView()`：`scrollIntoView` 会连带
+     * 滚祖先里所有能滚的东西（DSH 的侧栏外面还套着一层 regionArea，整页会被跟着推一下），
+     * 而这里只想动 `.tsb-scroll` 这一层。拿不到几何（假 DOM、行还没画出来）就什么都不做——
+     * 定位失败不该把侧栏搞白，也不该把别的区域滚走。
+     * @param {object|null} box - 滚动容器（`.tsb-scroll`）。
+     * @param {object|null} row - 会话行元素。
+     * @returns {boolean} 有没有真的滚。
+     */
+    function scrollRowIntoView(box, row) {
+      if (row === null || row === undefined) return false
+      try {
+        if (box === null || box === undefined || typeof box.getBoundingClientRect !== 'function') {
+          // 拿不到容器就退一步：让浏览器自己把这一行挪进视野（`nearest` = 已经在视野里就不动）。
+          if (typeof row.scrollIntoView !== 'function') return false
+          row.scrollIntoView({ block: 'nearest' })
+          return true
+        }
+        if (typeof row.getBoundingClientRect !== 'function') return false
+        const boxRect = box.getBoundingClientRect()
+        const rowRect = row.getBoundingClientRect()
+        const boxHeight = Number(boxRect?.height)
+        const rowHeight = Number(rowRect?.height)
+        const offset = Number(rowRect?.top) - Number(boxRect?.top)
+        const scrollTop = Number(box.scrollTop)
+        if (!Number.isFinite(boxHeight) || !Number.isFinite(rowHeight) || !Number.isFinite(offset)) return false
+        // 目标：行落在容器正中（上下留白至少 8px，免得顶到边上看不出是「找到了」）
+        const center = Math.max(8, (boxHeight - rowHeight) / 2)
+        const next = (Number.isFinite(scrollTop) ? scrollTop : 0) + offset - center
+        box.scrollTop = Math.max(0, next)
+        return true
+      } catch {
+        return false
+      }
+    }
+
+    /**
      * 一个路径的最后一截（会话 cwd 的目录名）。
      * @param {unknown} target - 路径。
      * @returns {string} 目录名；不是字符串或空路径时是空串。
@@ -1990,12 +2167,24 @@ window.__ModuleLoader__.load({
         const [wsExpanded, setWsExpanded] = React.useState(() => new Set())
         // 弹出菜单的视口坐标（量不到时为 null，退回 CSS 里的「贴在行下面」）。
         const [menuAnchor, setMenuAnchor] = React.useState(null)
+        // —— v0.13：会话锚点 ——
+        // `locateTarget` = 排队等一次「滚到眼前 + 闪一下」的那条会话（null = 没有活要干）。
+        // 它是个对象而不是 id：同一条会话连点两次也要重新滚一次。
+        const [locateTarget, setLocateTarget] = React.useState(null)
+        // 正在闪的那条会话 id（闪完自己清掉，见下面的自消 effect）。
+        const [flashId, setFlashId] = React.useState('')
 
         const searchInput = React.useRef(null)
         /** 常驻头（标题行 + 搜索框）：点到它外面才算「离开搜索」，见下面的 mousedown 监听。 */
         const searchTop = React.useRef(null)
         /** 顶部提示条的自消定时器：换一条先把上一条的定时器收掉，别让旧的那条迟来覆盖。 */
         const flashTimer = React.useRef(null)
+        /** 会话行 DOM（id → 行元素）：定位时要真的滚到它；拿不到就只做展开。 */
+        const rowNodes = React.useRef(new Map())
+        /** 列表滚动容器 `.tsb-scroll`：只滚这一层，不碰外面 DSH 的 regionArea。 */
+        const scrollBox = React.useRef(null)
+        /** 上一次已经自动定位过的「当前会话」：只在它变化时自动定位一次（别每次重画都抖）。 */
+        const lastCurrent = React.useRef('')
 
         const mounted = React.useRef(true)
 
@@ -2607,6 +2796,297 @@ window.__ModuleLoader__.load({
         )
         const archivedWorkspacesActive = mergeActive([...archivedWorkspaceActive.values()])
         const allActive = mergeActive([taskActive, workspacesActive, archivedWorkspacesActive])
+
+        // ---- v0.13：会话锚点（定位 / 展开 / 滚到眼前） ----
+
+        /**
+         * 一条会话在侧栏里的落点：任务区（按天）还是某个工作区（可能是已归档的项目）。
+         *
+         * 用**原始清单**找（`visibleGroups` / `archivedGroups` / `allWorkspaces`，都不受归档过滤
+         * 影响）：过滤只决定画不画，定位得先知道它在哪。位置（第几条）也按原始顺序数——
+         * 折没折起来只跟「排到第 10 条之后」有关，与过滤之后少了几条无关。
+         * @param {string} sessionId - 会话 id。
+         * @returns {{kind: 'task', day: string, position: number}|{kind: 'workspace', workspaceId: string, archived: boolean, position: number}|null} 落点。
+         */
+        const locateOf = (sessionId) => {
+          const want = String(sessionId ?? '')
+          if (want === '') return null
+          let position = -1
+          for (const group of [
+            ...(Array.isArray(visibleGroups) ? visibleGroups : []),
+            ...(Array.isArray(archivedGroups) ? archivedGroups : []),
+          ]) {
+            for (const session of Array.isArray(group?.sessions) ? group.sessions : []) {
+              position += 1
+              if (String(session?.id ?? '') !== want) continue
+              return { kind: 'task', day: String(session?.day ?? group?.day ?? ''), position }
+            }
+          }
+          for (const workspace of allWorkspaces) {
+            const ids = (Array.isArray(workspace?.sessionIds) ? workspace.sessionIds : []).map(String)
+            const index = ids.indexOf(want)
+            if (index < 0) continue
+            return {
+              kind: 'workspace',
+              workspaceId: String(workspace?.id ?? ''),
+              archived: workspace?.archived === true,
+              position: index,
+            }
+          }
+          return null
+        }
+
+        /**
+         * 当前会话在侧栏里的落点——**一次算清，多处共用**（锚点行、归档项目行都听它的）。
+         *
+         * 「你在这里」是单值断言：同一个会话只能标一处。归档项目那一组不画会话行，那条会话
+         * 要是同时也落在按天分组里（两边判据是独立的两条），一旦两处各自判「我在哪」，
+         * 会话行和项目行就会同时亮 `is-current` / `aria-current="true"`，读屏把两边都念成「当前」。
+         * 所以只认这一份：归档项目行要不要挂 `is-current`，看 `anchorTarget` 指不指向它。
+         */
+        const anchorTarget = currentId === undefined ? null : locateOf(currentId)
+
+        /**
+         * 一组会话在「展开其余 N 个会话」之下，第 index 条现在看不看得见。
+         * 与 `visibleSessions` 同一套判据：前 `SESSION_LIMIT` 条 + 跑着 / 等回话的照样露脸。
+         * @param {number} index - 在**已过滤**清单里的位置（-1 = 不在清单里）。
+         * @param {number} total - 这一组一共几条。
+         * @param {boolean} expandedAll - 这一组是不是已经「展开」了。
+         * @param {string} sessionId - 会话 id（查状态用）。
+         * @param {boolean} running - 快照里的 running 兜底。
+         * @returns {boolean} 看不看得见。
+         */
+        const foldVisible = (index, total, expandedAll, sessionId, running) => {
+          if (index < 0) return false
+          if (expandedAll || total <= SESSION_LIMIT || index < SESSION_LIMIT) return true
+          return ATTENTION_STATES.has(statusOf(ctx, String(sessionId), running === true))
+        }
+
+        /**
+         * 这条会话现在能不能在侧栏里看见：祖先都展开着、没被「展开其余 N 个」折掉、
+         * 也没被归档过滤藏掉。看不见才需要自动定位——已经看得见就别动（每次点行都抖一下很烦）。
+         *
+         * 归档项目是个例外：那一组里**不画会话行**（只列项目 + 「恢复」），所以「看得见」
+         * 指的是那个项目行露出来没有（`archivedProjectsOpen`），不是会话行。
+         * @param {string} sessionId - 会话 id。
+         * @param {object|null} target - `locateOf` 的结果。
+         * @returns {boolean} 看不看得见。
+         */
+        const locateVisible = (sessionId, target) => {
+          if (target === null || target === undefined) return false
+          const want = String(sessionId ?? '')
+          if (target.kind === 'task') {
+            if (!tasksOpen) return false
+            const flat = []
+            for (const group of dayGroups) {
+              for (const session of Array.isArray(group?.sessions) ? group.sessions : []) flat.push(session)
+            }
+            const index = flat.findIndex((session) => String(session?.id ?? '') === want)
+            return foldVisible(index, flat.length, tasksExpanded, want, flat[index]?.running === true)
+          }
+          if (target.archived) return archivedProjectsOpen
+          const key = `ws:${target.workspaceId}`
+          if (!workspacesOpen || !expanded.has(key)) return false
+          const workspace = allWorkspaces.find((candidate) => String(candidate?.id) === target.workspaceId)
+          const members = workspaceMembers(workspace)
+          const index = members.findIndex((member) => String(member) === want)
+          return foldVisible(index, members.length, wsExpanded.has(key), want, infoOf(want)?.running === true)
+        }
+
+        /**
+         * 定位一条会话（v0.13）：**展开它折着的祖先 → 把行滚到眼前 → 闪一下**。
+         *
+         * 「点击会话，左侧要定位打开对应的项目或者任务」说的就是这一步：光把会话打开不够，
+         * 侧栏得跟着把「它在哪个项目 / 哪个任务」摊开来，人才知道自己在哪。
+         *
+         * 三条口径：
+         *   1. **只展开不收起**：定位是加法，绝不替人把别的组折起来；
+         *   2. **看得见就不动**（自动定位）：主视图换一条本来就露着的会话，不该每次都抖一下——
+         *      显式调用（点锚点行 / 点搜索结果）才无条件滚 + 闪，自动定位只滚不闪；
+         *   3. **不写 Host**：全是客户端状态（展开 / 滚动 / 高亮），不碰会话日志、不改登记表。
+         * @param {string} sessionId - 会话 id。
+         * @param {{force?: boolean, auto?: boolean}} [options] - `force` = 无条件滚 + 闪（`auto` 只滚）。
+         * @returns {boolean} 有没有找到落点（找不到时只留一句提示，不抛）。
+         */
+        const locateSession = React.useCallback(
+          (sessionId, options = {}) => {
+            const want = String(sessionId ?? '')
+            if (want === '') return false
+            const force = options.force === true
+            const target = locateOf(want)
+            // 归档过滤只影响**画在树上**的那些会话（任务区 / 普通工作区）。归档项目里的会话
+            // 本来就不画（那一组只有项目行），别拿过滤说事——否则会把人挑的「仅已归档」悄悄改掉。
+            const sidebared = archivedSessionIds.has(want)
+            const subjectToFilter = target !== null && (target.kind === 'task' || (target.kind === 'workspace' && !target.archived))
+            const filteredOut =
+              subjectToFilter && ((sidebared && archivedFilter === 'hide') || (!sidebared && archivedFilter === 'only'))
+            if (filteredOut) {
+              // 只有**显式**定位才去动视图选项（自动定位不去改人挑的视图）。
+              if (!force) return false
+              setArchivedFilter('show')
+              flash(t('locateUnfiltered'))
+            }
+            if (target === null) {
+              if (force) flash(t('locateMissingHint'))
+              return false
+            }
+            const visible = !filteredOut && locateVisible(want, target)
+            // 落点的 DOM 键：普通会话就是会话 id；归档项目里不画会话行，落点是那个项目行本身。
+            let locateKey = want
+            if (target.kind === 'task') {
+              // 只动「该开还没开」的那几处：每次定位都无条件 set 一遍，React 虽然会 bail out，
+              // 但订阅方的 setState 调用会被记成一个真事件——能不动就不动。
+              if (!tasksOpen) setTasksOpen(true)
+              const flat = []
+              for (const group of dayGroups) {
+                for (const session of Array.isArray(group?.sessions) ? group.sessions : []) flat.push(session)
+              }
+              const index = flat.findIndex((session) => String(session?.id ?? '') === want)
+              if (!foldVisible(index, flat.length, tasksExpanded, want, infoOf(want)?.running === true)) {
+                setTasksExpanded(true)
+              }
+            } else {
+              const key = `ws:${target.workspaceId}`
+              if (target.archived) {
+                if (!archivedProjectsOpen) setArchivedProjectsOpen(true)
+                locateKey = key
+              } else {
+                if (!workspacesOpen) setWorkspacesOpen(true)
+                if (!expanded.has(key)) {
+                  setExpanded((current) => {
+                    const next = new Set(current)
+                    next.add(key)
+                    return next
+                  })
+                }
+                const workspace = allWorkspaces.find((candidate) => String(candidate?.id) === target.workspaceId)
+                const members = workspaceMembers(workspace)
+                const index = members.findIndex((member) => String(member) === want)
+                if (!foldVisible(index, members.length, wsExpanded.has(key), want, infoOf(want)?.running === true)) {
+                  setWsExpanded((current) => {
+                    const next = new Set(current)
+                    next.add(key)
+                    return next
+                  })
+                }
+              }
+            }
+            // 显式定位 = 滚 + 闪；自动定位（打开会话时顺手把它找出来）只滚不闪——
+            // 页一开就闪一下太吵，人只是想知道「它在哪」，不是想被指一下。
+            if (force || !visible) setLocateTarget({ id: locateKey, at: Date.now(), flash: force })
+            return true
+          },
+          [
+            archivedFilter,
+            archivedSessionIds,
+            archivedProjectsOpen,
+            allWorkspaces,
+            dayGroups,
+            expanded,
+            flash,
+            visibleGroups,
+            archivedGroups,
+            t,
+            tasksExpanded,
+            tasksOpen,
+            workspaceMembers,
+            workspacesOpen,
+            wsExpanded,
+          ],
+        )
+
+        /**
+         * effect 里取**最新一份** `locateSession`：自动定位只该因为「当前会话变了」触发一次，
+         * 不该因为 Host 每次轮询重画而带着新闭包重跑（那会每隔几秒把人自己折起来的组又展开）。
+         */
+        const locateRef = React.useRef(null)
+        locateRef.current = locateSession
+        /** Host 的第一份状态到手了没有：没到手时找不到落点，别把「找不到」记成「已定位过」。 */
+        const hostReady = state !== null
+        /**
+         * Host 每一份 `state` 的时间戳：当成 effect 的依赖，用来「等下一份 data 再试一次」。
+         * 刚用 ＋ 建出来的会话，主视图已经切过去了、Host 的 `state` 里却还没有它——
+         * 那一拍定位必然找不到落点，得等下一次轮询把这条会话带回来再试。
+         */
+        const hostStamp = typeof state?.generatedAt === 'number' ? state.generatedAt : 0
+        /** 这一轮自动定位的重试截止时刻（0 = 没在等）。 */
+        const locateRetryUntil = React.useRef(0)
+        /** 正在等的那条会话：换人了就把截止时刻清掉。 */
+        const pendingCurrent = React.useRef('')
+        /** 搜索开着的时候整棵树被结果页顶掉了（没有行可滚）：先别动，等收起搜索再补一次。 */
+        const searching = query.trim() !== ''
+
+        // 自动定位：主视图换到哪条会话，侧栏就在哪一侧把它找出来（看不见才动）。
+        // 窄条（rail）里根本没有行可滚，就别白折腾那些展开状态了。
+        const railMode = props !== null && typeof props === 'object' && props.wide === false
+        React.useEffect(() => {
+          if (railMode) return
+          const want = currentId === undefined ? '' : String(currentId)
+          if (want === '') {
+            lastCurrent.current = ''
+            locateRetryUntil.current = 0
+            pendingCurrent.current = ''
+            return
+          }
+          if (!hostReady) return
+          if (searching) return
+          if (lastCurrent.current === want) return
+          if (pendingCurrent.current !== want) {
+            pendingCurrent.current = want
+            locateRetryUntil.current = 0
+          }
+          const locate = locateRef.current
+          const found = typeof locate === 'function' ? locate(want, { auto: true }) : false
+          if (found) {
+            lastCurrent.current = want
+            locateRetryUntil.current = 0
+            pendingCurrent.current = ''
+            return
+          }
+          // 找不到落点：多半是 Host 的 state 还没把这条会话算进来（刚用 ＋ 建出来的那种）。
+          // 给一个期限而不是次数：任何一次动作都会顺带刷一遍 state，数次数会在手快连点的时候
+          // 一秒烧光预算，而 Host 那边其实只差一拍。等 20 秒还等不到，才认账「它真不在侧栏里」。
+          if (locateRetryUntil.current === 0) locateRetryUntil.current = Date.now() + LOCATE_RETRY_MS
+          if (Date.now() <= locateRetryUntil.current) return
+          lastCurrent.current = want
+          locateRetryUntil.current = 0
+          pendingCurrent.current = ''
+        }, [currentId, hostReady, railMode, hostStamp, searching])
+
+        // 定位的第二步：等这一帧把祖先真的画出来之后再滚。
+        // （展开祖先是 state；当场量几何量到的还是展开前的位置，滚了也白滚。）
+        React.useEffect(() => {
+          if (locateTarget === null) return undefined
+          const want = String(locateTarget.id ?? '')
+          if (want === '') return undefined
+          let cancelled = false
+          const schedule =
+            typeof requestAnimationFrame === 'function' ? requestAnimationFrame : (fn) => setTimeout(fn, 16)
+          schedule(() => {
+            if (cancelled) return
+            const node = rowNodes.current instanceof Map ? rowNodes.current.get(want) : undefined
+            scrollRowIntoView(scrollBox.current ?? null, node ?? null)
+            if (locateTarget.flash !== true) return
+            // 先撤掉上一次的「闪」，下一帧再点上：同一个 class 一直挂着，CSS 动画不会重播。
+            setFlashId('')
+            schedule(() => {
+              if (!cancelled && mounted.current) setFlashId(want)
+            })
+          })
+          return () => {
+            cancelled = true
+          }
+        }, [locateTarget])
+
+        // 「闪」是会自己收的：定位只是指一下「就是这一行」，不该把这条行永久染上底色。
+        React.useEffect(() => {
+          if (flashId === '') return undefined
+          const timer = setTimeout(() => {
+            if (mounted.current) setFlashId('')
+          }, FLASH_MS)
+          return () => clearTimeout(timer)
+        }, [flashId])
+
         /** 搜索能认出来的会话（任务区 + 各工作区名下，含已归档的）。 */
         const searchableSessions = React.useMemo(() => {
           const entries = []
@@ -2749,6 +3229,56 @@ window.__ModuleLoader__.load({
           )
 
         /**
+         * 锚点行（v0.13）：「你在这里」+ 当前会话的归属（「任务 · 今天」/「我的项目」）。
+         *
+         * 为什么挂在常驻头里而不是列表里：任务组与工作区组都能折起来，一折起来列表里就什么都
+         * 不剩——而「当前会话在哪」这件事不该跟着折叠一起消失。这一行不滚、不折、不参与过滤。
+         * 归属写具体的那个（项目名 / 任务 + 哪天；归档的项目再挂一枚「已归档」角标），
+         * 找不到就如实说「不在侧栏里」——那也是一种答案（比如会话属于别的工作区）。
+         * 点它 = 定位：展开折着的祖先、把行滚到眼前、闪一下。
+         * @returns {object|null} React 元素（没有打开的会话时 null）。
+         */
+        const renderAnchor = () => {
+          if (currentId === undefined) return null
+          // 落点只认 `anchorTarget`（上面算好那一份）：锚点行与归档项目行必须说的是同一件事。
+          const target = anchorTarget
+          let label = t('locateMissing')
+          let tag = ''
+          if (target !== null && target.kind === 'task') {
+            label = `${t('tasks')} · ${dayLabel(target.day, t)}`
+          } else if (target !== null) {
+            const workspace = allWorkspaces.find((candidate) => String(candidate?.id) === target.workspaceId)
+            const name = typeof workspace?.title === 'string' ? workspace.title : ''
+            label = name !== '' ? name : target.workspaceId
+            tag = target.archived ? t('archivedBadge') : ''
+          }
+          // 归档项目里没有会话行可指：文案改成「定位到所在项目」，别承诺翻出会话。
+          const action = target === null ? t('locateMissingHint') : target.kind === 'workspace' && target.archived ? t('locateProject') : t('locateCurrent')
+          const title = [`${t('youAreHere')}：${label}`, `${labelOf(infoOf(currentId))}`, action].join('\n')
+          return h(
+            'button',
+            {
+              className: 'tsb-anchor',
+              type: 'button',
+              key: 'anchor',
+              title,
+              'aria-label': `${t('youAreHere')}：${label}`,
+              disabled: target === null,
+              onClick: () => {
+                if (target === null) return
+                // 搜索开着时整棵树被结果页顶掉了：先收起（清词 + 收框），否则滚不到那条行。
+                if (searchOpen || query.trim() !== '') closeSearch()
+                locateSession(currentId, { force: true })
+              },
+            },
+            h('span', { className: 'tsb-anchor-icon' }, targetIcon(12)),
+            h('span', { className: 'tsb-anchor-label' }, label),
+            tag === '' ? null : h('span', { className: 'tsb-anchor-sep' }, '·'),
+            tag === '' ? null : h('span', { className: 'tsb-anchor-tag' }, tag),
+          )
+        }
+
+        /**
          * 顶部提示条（v0.11.4）：删除会话的二次确认与删成功 / 复制成功的反馈都画在这里。
          *
          * 为什么不放在列表里：`.tsb-scroll` 一长，列表最底下那行提示滚不到眼前，而且会在
@@ -2837,6 +3367,9 @@ window.__ModuleLoader__.load({
 
         /**
          * 一条会话行（行首状态点 + 标题 + 相对时间 + 行尾「…」菜单）。
+         *
+         * v0.13 起这一行还担着「锚点」：主视图开着的那条挂 `is-current`（主色竖条 + 标题加粗），
+         * 刚被定位过的那条挂 `is-flash`（闪一下）；`ref` 把它登记进 `rowNodes`，定位时才滚得到。
          * @param {string} sessionId - 会话 id。
          * @param {string} indent - 左缩进（CSS 长度）。
          * @param {string} key - React key。
@@ -2849,12 +3382,33 @@ window.__ModuleLoader__.load({
           const status = statusOf(ctx, sessionId, info?.running === true)
           const sidebarArchived = options.sidebarArchived === true
           const isMenuOpen = menu !== null && menu.kind === 'session' && menu.id === sessionId
-          const className = ['tsb-row', sidebarArchived ? 'is-archived' : '', isMenuOpen ? 'is-menu-open' : '']
+          const isCurrent = currentId !== undefined && String(sessionId) === currentId
+          const isFlashing = flashId !== '' && flashId === String(sessionId)
+          const className = [
+            'tsb-row',
+            sidebarArchived ? 'is-archived' : '',
+            isMenuOpen ? 'is-menu-open' : '',
+            isCurrent ? 'is-current' : '',
+            isFlashing ? 'is-flash' : '',
+          ]
             .filter(Boolean)
             .join(' ')
           return h(
             'div',
-            { className, key, style: { '--tsb-indent': indent } },
+            {
+              className,
+              key,
+              style: { '--tsb-indent': indent },
+              'data-session-id': String(sessionId),
+              'aria-current': isCurrent ? 'true' : undefined,
+              ref: (node) => {
+                const id = String(sessionId)
+                const store = rowNodes.current
+                if (!(store instanceof Map)) return
+                if (node === null || node === undefined) store.delete(id)
+                else store.set(id, node)
+              },
+            },
             h(
               'button',
               {
@@ -3010,8 +3564,11 @@ window.__ModuleLoader__.load({
                   onClick: () => {
                     // 点开一条结果 = 选完了：先收起搜索（清词 + 收框），再打开会话——
                     // 否则侧栏会一直停在结果页，人还得自己找地方关掉它（内置也是先收再开）。
+                    // v0.13：顺手定位——结果页里看不出这条在哪个项目 / 哪个任务，
+                    // 回到树上、把它的祖先展开、滚到眼前，才知道「这是哪儿的会话」。
                     closeSearch()
                     openSession(item.id)
+                    locateSession(item.id, { force: true })
                   },
                 },
                 h('span', {
@@ -3078,13 +3635,39 @@ window.__ModuleLoader__.load({
             h(
               'div',
               { className: 'tsb-rows', key: 'archived-projects-rows' },
-              archivedWorkspaces.map((workspace) =>
-                h(
+              archivedWorkspaces.map((workspace) => {
+                // v0.13：归档项目**不画会话行**（原来就只列项目 + 一个「恢复」），
+                // 所以「当前会话在归档项目里」的落点只能是这一行本身——它也得进 `rowNodes`、
+                // 也得能挂 is-current / is-flash，不然锚点会说「在归档的老项目里」却点不动。
+                const rowKey = `ws:${workspace.id}`
+                // 「你在这里」只认 anchorTarget：这条会话要是同时落在按天分组里，那一行才该亮，
+                // 这里就不能再自己判一遍成员关系（两处都亮 = 没有断言）。
+                const containsCurrent =
+                  anchorTarget !== null &&
+                  anchorTarget.kind === 'workspace' &&
+                  anchorTarget.workspaceId === String(workspace.id)
+                const className = [
+                  'tsb-row',
+                  'is-archived',
+                  containsCurrent ? 'is-current' : '',
+                  flashId === rowKey ? 'is-flash' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')
+                return h(
                   'div',
                   {
-                    className: 'tsb-row is-archived',
+                    className,
                     key: `archived-ws:${workspace.id}`,
                     style: { '--tsb-indent': '10px' },
+                    'data-workspace-id': String(workspace.id),
+                    'aria-current': containsCurrent ? 'true' : undefined,
+                    ref: (node) => {
+                      const store = rowNodes.current
+                      if (!(store instanceof Map)) return
+                      if (node === null || node === undefined) store.delete(rowKey)
+                      else store.set(rowKey, node)
+                    },
                   },
                   h('span', { className: 'tsb-folder' }, folderIcon({ size: 16 })),
                   h('span', { className: 'tsb-title', title: workspace.path }, workspace.title),
@@ -3099,8 +3682,8 @@ window.__ModuleLoader__.load({
                     },
                     t('restore'),
                   ),
-                ),
-              ),
+                )
+              }),
             ),
           ]
         }
@@ -3264,8 +3847,6 @@ window.__ModuleLoader__.load({
           )
         }
 
-        const searching = query.trim() !== ''
-
         /** 「任务」组的标题行（＋ = 在任务默认工作区里开一条新会话）。 */
         const tasksGroup = h(
           'div',
@@ -3383,6 +3964,10 @@ window.__ModuleLoader__.load({
               ),
             ),
 
+            // 锚点行（v0.13）：「你在这里 · 任务 · 今天 / 我的项目」，点它就把那条会话定位回来。
+            // 放在标题下面、提示条上面——它是「当前在哪」的常显一行，不该被列表滚走或折叠藏掉。
+            renderAnchor(),
+
             // 顶部提示条（删除会话的二次确认 / 删成功与复制成功的反馈）。
             // 画在常驻头里：位置固定，不会被列表滚走，也不会在列表中间突然顶出一行。
             renderTopNotice(),
@@ -3424,7 +4009,7 @@ window.__ModuleLoader__.load({
           // 唯一的一层滚动：任务按天 / 工作区 / 归档组 / 提示都在这里滚。
           h(
             'div',
-            { className: 'tsb-scroll' },
+            { className: 'tsb-scroll', ref: scrollBox },
             searching ? renderSearchResults() : [tasksGroup, tasksOpen ? h('div', { className: 'tsb-rows', key: 'tasks-rows' }, renderTaskDays()) : null],
 
             searching
